@@ -104,3 +104,6 @@ Caddyfile.dev
 .claude/
 
 IMPLEMENTATION_PLAN.md
+
+# WorkBuddy local session data
+.workbuddy/
