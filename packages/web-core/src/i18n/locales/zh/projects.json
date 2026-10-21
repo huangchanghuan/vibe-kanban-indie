@@ -1,0 +1,18 @@
+{
+  "createProjectDialog": {
+    "title": "创建项目",
+    "titleChildBoard": "创建子看板",
+    "description": "创建一个新项目。",
+    "descriptionChildBoard": "在此项目下创建一个新的子看板。",
+    "nameLabel": "项目名称",
+    "namePlaceholder": "输入项目名称",
+    "selectColor": "选择项目颜色",
+    "creating": "创建中...",
+    "createButton": "创建项目"
+  },
+  "deleteProjectDialog": {
+    "title": "删除项目？",
+    "description": "这将永久删除 \"{{name}}\" 及其所有任务。此操作无法撤销。",
+    "error": "删除项目失败，请重试。"
+  }
+}

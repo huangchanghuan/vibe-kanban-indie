@@ -1,50 +1,50 @@
-name = "Async OpenCode GLM"
-description = "Self-drive Async flow for an OpenCode (GLM-5.2) execution agent: the main loop writes the spec, plan, and code itself — an OpenCode session cannot spawn the plugin's Claude subagents — and Codex reviews the plan (gated) and, optionally, the diff. Run this pipeline with an OpenCode execution agent on its GLM-5.2 profile. OpenCode pipelines use MiniMax / GLM / Kimi models only; never mix in Claude models (Codex is the shared reviewer for both families)."
+name = "异步 OpenCode GLM"
+description = "面向 OpenCode (GLM-5.2) 执行代理的自驱动异步流程：主循环亲自撰写规格、计划与代码，因为 OpenCode 会话无法派发插件的 Claude 子代理。Codex 评审计划（需要人工审批时设把关阶段），并可选地评审 diff。用 OpenCode 执行代理的 GLM-5.2 profile 运行本流水线。OpenCode 流水线只使用 MiniMax / GLM / Kimi 模型，绝不混入 Claude 模型（Codex 是两个家族共用的评审者）。"
 
 [[stage]]
 id = "orchestrate"
-label = "Orchestrate (auto-drive)"
+label = "编排驱动"
 default_enabled = false
-prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
+prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
 
 [[stage]]
 id = "spec"
-label = "Spec (self)"
+label = "自行编写规格"
 default_enabled = true
-prompt = "FIRST, check the card description: if it already contains the full spec — meaning `### Outcome`, `### Scope`, and `### Testing & acceptance criteria` EACH occur at the START of a line (prefix match), and NOT inside a fenced code block or a block quote; ALL THREE are required and if any one is missing take the OTHERWISE path — then write `SPEC.md` at the workspace root as exactly: the line `## Task: <the card's title, verbatim>`, then a blank line, then the card description verbatim, stripping the `## Pipeline` block anchored to STANDALONE `<!-- vk:pipeline:start -->` / `<!-- vk:pipeline:end -->` marker lines (delete everything between them including both markers; a marker mentioned inside a prose line is not a delimiter), collapsing the blank run the strip leaves, and sweeping out any stray executor-pin bullet left outside the block. Do not edit, re-author, or re-verify the copied text: adopt the card's decisions as settled, report \"spec adopted from card description\", and move on. OTHERWISE, write the technical spec YOURSELF to `SPEC.md` at the workspace root — ground it in the card description plus quick repo lookups; cover the outcome, scope, technical requirements, and testing & acceptance criteria; keep any decisions the card already made settled rather than re-opening them."
+prompt = "第一步，检查卡片描述。如果它已经包含完整规格，就直接沿用。完整规格的判定条件如下，三者缺一不可：`### Outcome`、`### Scope` 和 `### Testing & acceptance criteria` 各自出现在某一行的行首，前缀匹配即可；并且这些标题不在围栏代码块或引用块内。任何一条不满足，就执行下面的“否则”分支。沿用时的写法：在工作区根目录写入 `SPEC.md`，内容恰好为：一行 `## Task: <the card's title, verbatim>`，然后一个空行，然后逐字照抄卡片描述。接着剥离 `## Pipeline` 块，以独立成行的 `<!-- vk:pipeline:start -->` / `<!-- vk:pipeline:end -->` 标记行为锚点：删除两者之间的所有内容，包括两行标记；普通文本行中提到的标记不是分隔符。然后把剥离后多余空行压成一个，并清扫任何遗留在块外的残留 executor-pin 行。不要编辑、重写或重新验证被复制的文本。把卡片已做的决定视为已定的决定，不要重新讨论或推翻，报告 \"spec adopted from card description\"，然后继续。否则执行以下流程：亲自把技术规格写到工作区根目录的 `SPEC.md`。依据是卡片描述加上快速的仓库查阅。覆盖结果、范围、技术要求以及测试与验收标准。卡片已做的决定视为已定的决定，不要重新讨论或推翻。"
 
 [[stage]]
 id = "plan"
-label = "Plan (self)"
+label = "自行编写计划"
 default_enabled = true
-prompt = "Turn `SPEC.md` into a step-by-step `IMPLEMENTATION_PLAN.md` at the workspace root YOURSELF, grounded in real repo files — Goal, Approach, ordered Steps each naming the real `files:` it touches with an observable `done-when:` check, Verification, and Risks / open questions. When the plan is verified, measure it and report the single line `PLAN-FACTS: <size> KB, <n> steps, <n> files, <n> open decisions` — the next two stages read this line."
+prompt = "亲自把 `SPEC.md` 转化为工作区根目录的分步 `IMPLEMENTATION_PLAN.md`，以真实仓库文件为依据。内容包含 Goal、Approach、按序排列的 Steps（每一步点名它触达的真实 `files:` 和一个可观察的 `done-when:` 检查）、Verification，以及 Risks / open questions。计划写好后，对它进行度量并报告单行 `PLAN-FACTS: <size> KB, <n> steps, <n> files, <n> open decisions`，接下来两个阶段会读取这一行。"
 
 [[stage]]
 id = "plan-review-codex"
-label = "Codex plan review"
+label = "Codex 计划评审"
 default_enabled = true
-prompt = "GATE FIRST — read the plan stage's PLAN-FACTS line (measure `IMPLEMENTATION_PLAN.md` yourself if it is missing): if the plan is under 40 KB AND has 0 open decisions AND the card's **Routing:** line (when it carries one) does not force the review with plan-review: yes, SKIP this stage — report the single line `PLAN-GATE: plan-review skipped (<size> KB, <n> open decisions)` and move on. Otherwise report `PLAN-GATE: plan-review running (<size> KB, <n> open decisions)` and have Codex independently review `IMPLEMENTATION_PLAN.md` (`codex exec --sandbox read-only` over the plan — do NOT review it yourself). Iterate until Codex reports no significant findings, capped at TWO review passes — findings still open after the second pass mean the plan (or the spec above it) is mis-scoped: revise the plan (re-run the planning stage) or escalate; never pay a third pass. Resolve confirmed findings by revising the plan before any code is written. This is a read-only plan review: do not modify code here."
+prompt = "第一步，先过把关阶段。读取计划阶段的 PLAN-FACTS 行；若缺失，就自己度量 `IMPLEMENTATION_PLAN.md`。跳过本阶段的条件如下，三者同时满足才跳过：计划小于 40 KB；未决决策为 0；卡片的 **Routing:** 行（如果带有）没有用 plan-review: yes 强制评审。满足就跳过本阶段，报告单行 `PLAN-GATE: plan-review skipped (<size> KB, <n> open decisions)` 并继续。理由：一个小而封闭的计划不值得独立评审，独立评审的开销通常比计划本身还大。否则报告 `PLAN-GATE: plan-review running (<size> KB, <n> open decisions)` 并继续，让 Codex 独立评审 `IMPLEMENTATION_PLAN.md`（对计划执行 `codex exec --sandbox read-only`——不要亲自评审）。迭代直到 Codex 不再报告重大发现，最多两轮评审。第二轮之后仍未解决的发现，说明计划（或其上的规格）范围有问题：要么修订计划（重跑计划阶段），要么上报。绝不支付第三轮。在编写任何代码之前，先通过修订计划解决已确认的发现。这是只读的计划评审：不要在此处修改代码。"
 
 [[stage]]
 id = "implement"
-label = "Implement (self)"
+label = "自行实现"
 default_enabled = true
-prompt = "Implement the card YOURSELF, strictly from `SPEC.md` and `IMPLEMENTATION_PLAN.md`, step by step — run each step's `done-when:` check, commit as you go, and run the project's own checks before advancing. You are the coder on this pipeline: a single-model OpenCode session, so there is no coder subagent to spawn and no cross-family model to borrow. If the work outgrows the card's Routing tier (an unpriced design decision, scope far beyond the plan), commit safe work and escalate with the `VK-ESCALATE: <tier>-><proposed-tier> — <evidence>` first line instead of grinding through."
+prompt = "亲自实现这张卡片，严格依据 `SPEC.md` 和 `IMPLEMENTATION_PLAN.md`，逐步进行。每一步都要运行它的 `done-when:` 检查，边做边提交，推进前先运行项目自身的检查。在这条流水线上你就是编码者：单模型 OpenCode 会话，没有可派发的 coder 子代理，也没有可借用的跨家族模型。如果工作超出卡片的 Routing 层级（一个未定价的设计决策，或远超计划的范围），就提交安全的工作，然后上报：把 `VK-ESCALATE: <tier>-><proposed-tier> — <evidence>` 放在第一行，不要硬写下去。"
 
 [[stage]]
 id = "code-review"
-label = "Review via Codex"
+label = "Codex 评审"
 default_enabled = false
-prompt = "After implementing, run an independent Codex review of the card's diff (the `codex-review` skill / Codex CLI), iterating until it reports no significant findings, capped at TWO passes — findings still open after the second pass are a scope problem, not a review problem: fix what is confirmed, report what remains, and move on. Address confirmed findings and re-verify before marking the card ready."
+prompt = "实现完成后，对卡片的 diff 运行一次独立的 Codex 评审（`codex-review` 技能 / Codex CLI）。迭代直到不再报告重大发现，最多两轮。第二轮之后仍未解决的发现是范围问题，不是评审问题：修复已确认的，报告剩余的，然后继续。处理完已确认的发现并重新验证之后，才能把卡片标记为就绪。"
 
 [[stage]]
 id = "merge"
-label = "Merge to base"
+label = "合并到基础分支"
 default_enabled = true
-prompt = "When the work is implemented and reviewed, squash-merge this card's branch into the base branch yourself — this stage being listed is your authorization, so do not wait for a go-ahead; gating, when wanted, is the Wait-for-approval stage's job."
+prompt = "工作实现并评审完毕后，由你亲自把这张卡片的分支 squash 合并到基础分支。本阶段被列出，就是对你的授权，不要再等待额外批准。需要人工审批时，那是等待批准（Wait-for-approval）阶段的职责。"
 
 [[stage]]
 id = "pr"
-label = "Open pull request"
+label = "创建 Pull Request"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, open a pull request for this card against the base branch."
+prompt = "工作实现并评审完毕后，针对基础分支为这张卡片创建一个 pull request。"

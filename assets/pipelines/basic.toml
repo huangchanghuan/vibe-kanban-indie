@@ -1,56 +1,56 @@
-name = "Basic"
-description = "Classic dev flow: spec → plan → implement → review → squash-merge."
+name = "基础"
+description = "经典开发流程：规格 → 计划 → 实现 → 评审 → squash 合并。"
 
 [[stage]]
 id = "orchestrate"
-label = "Orchestrate (auto-drive)"
+label = "编排驱动"
 default_enabled = false
-prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
+prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
 
 [[stage]]
 id = "spec"
-label = "Create spec"
+label = "创建规格"
 default_enabled = true
-prompt = "FIRST, check the card description: if it already contains the full spec — meaning `### Outcome`, `### Scope`, and `### Testing & acceptance criteria` EACH occur at the START of a line (prefix match, so `### Outcome — what's different when this is done` counts), and NOT inside a fenced code block or a block quote; ALL THREE are required and if any one is missing take the OTHERWISE path — then copy it through instead of writing one from scratch: write `SPEC.md` at the workspace root as exactly the line `## Task: <the card's title, verbatim>`, then a blank line, then the card description verbatim (the description does NOT carry the title — it begins at the `**In one sentence:**` line — so reconstruct that first line from the card's title field). Strip the `## Pipeline` block from the body, anchored to STANDALONE marker lines: take the LAST line whose entire content is exactly `<!-- vk:pipeline:start -->`, and the first line after it whose entire content is exactly `<!-- vk:pipeline:end -->`, and delete everything between them including both marker lines. A marker mentioned inside a prose line is not a delimiter — leave that line alone, since a spec may legitimately quote the markers while describing them. Then collapse the blank run the strip leaves behind so the file ends with a single trailing newline. Also sweep out any stray executor-pin bullet (a line matching `- Run this card with the ... execution agent: pass ...`) left outside the block — it normally sits inside the block and goes with it, so this is just a safety net. Do not edit, re-author, or re-verify the copied text: adopt the card's decisions as settled. Then report \"spec adopted from card description\". (The card description is already in your task context; if you were given only the card title/id, `get_issue` the card to fetch it.) OTHERWISE: Write a technical spec for this card and save it to `SPEC.md` at the workspace root (one level above the repo, next to `CLAUDE.md` — never inside the repo) before implementing."
+prompt = "第一步，检查卡片描述。如果它已经包含完整规格，就直接沿用，不要从零撰写。完整规格的判定条件如下，三者缺一不可：`### Outcome`、`### Scope` 和 `### Testing & acceptance criteria` 各自出现在某一行的行首，前缀匹配即可，因此 `### Outcome — what's different when this is done` 也算；并且这些标题不在围栏代码块或引用块内。任何一条不满足，就执行下面的“否则”分支。沿用时的写法：在工作区根目录写入 `SPEC.md`，内容恰好为一行 `## Task: <the card's title, verbatim>`，然后一个空行，然后逐字照抄卡片描述。描述本身不包含标题——它从 `**In one sentence:**` 一行开始——所以要用卡片的标题字段重建第一行。接下来从正文中剥离 `## Pipeline` 块，以独立成行的标记行为锚点：找到整行内容恰好为 `<!-- vk:pipeline:start -->` 的最后一行，再找到其后第一行整行内容恰好为 `<!-- vk:pipeline:end -->` 的行，删除两者之间的所有内容，包括这两行标记本身。普通文本行中提到的标记不是分隔符，不要动那一行——规格在描述这些标记时合法地引用它们是允许的。然后把剥离后多余空行压成一个，使文件以单个换行符结尾。同时清扫任何遗留在块外的残留 executor-pin 行（匹配 `- Run this card with the ... execution agent: pass ...` 的行）；它通常位于块内并随之删除，这只是个保险。不要编辑、重写或重新验证被复制的文本。把卡片已做的决定视为已定的决定，不要重新讨论或推翻。然后报告 \"spec adopted from card description\"。卡片描述已经在你的任务上下文中；如果只给了你卡片标题/id，用 `get_issue` 获取该卡片。否则执行以下流程：为这张卡片撰写技术规格，保存到工作区根目录的 `SPEC.md`（仓库上一级、`CLAUDE.md` 旁边，绝不要放进仓库内），然后再实现。"
 
 [[stage]]
 id = "plan"
-label = "Create plan"
+label = "创建计划"
 default_enabled = true
-prompt = "Write a step-by-step implementation plan and save it to `IMPLEMENTATION_PLAN.md` at the workspace root (one level above the repo, next to `CLAUDE.md` — never inside the repo)."
+prompt = "撰写一份分步实现计划，保存到工作区根目录的 `IMPLEMENTATION_PLAN.md`（仓库上一级、`CLAUDE.md` 旁边，绝不要放进仓库内）。"
 
 [[stage]]
 id = "plan-review"
-label = "Review plan"
+label = "评审计划"
 default_enabled = false
-prompt = "Have the implementation plan reviewed (e.g. a codex plan review, read-only) and resolve blockers before writing code."
+prompt = "对实现计划进行评审（例如一次只读的 codex 计划评审），并在编写代码之前解决阻塞项。"
 
 [[stage]]
 id = "wait-for-approval"
-label = "Wait for approval"
+label = "等待批准"
 default_enabled = false
-prompt = "Pause for operator approval at this point: commit the work so far, then stop and wait for the operator's decision or instructions before continuing to later stages — do not advance on your own until the operator responds."
+prompt = "在此处暂停，等待操作者的批准。先提交目前为止的工作，然后停下。等到操作者给出决定或指示后，再继续后续阶段。在操作者回应之前，不要自行推进。"
 
 [[stage]]
 id = "code-review"
-label = "Review via Codex"
+label = "Codex 评审"
 default_enabled = true
-prompt = "After implementing, run an independent Codex review of the card's diff (the `codex-review` skill / Codex CLI), iterating until it reports no significant findings. Address confirmed findings and re-verify before marking the card ready."
+prompt = "实现完成后，对卡片的 diff 运行一次独立的 Codex 评审（`codex-review` 技能 / Codex CLI）。反复迭代，直到不再报告重大发现。处理完已确认的发现并重新验证之后，才能把卡片标记为就绪。"
 
 [[stage]]
 id = "update-docs"
-label = "Update documentation"
+label = "更新文档"
 default_enabled = false
-prompt = "Update the documentation affected by this change so the docs match what shipped, and commit it before marking the card ready."
+prompt = "更新受本次变更影响的文档，使文档与实际交付的内容一致。在把卡片标记为就绪之前，先提交文档变更。"
 
 [[stage]]
 id = "merge"
-label = "Squash-merge to base"
+label = "Squash 合并到基础分支"
 default_enabled = true
-prompt = "Squash-merge this card's branch into the base branch yourself once the build passes — this stage being listed is your authorization, so do not wait for a go-ahead; gating, when wanted, is the Wait-for-approval stage's job. TWO HARD FACTS: (a) you are in a linked worktree, so `git checkout main` CANNOT work — never try it; (b) other lanes merge into the same base concurrently, so a 2-arg `git update-ref refs/heads/main $NEW` is a blind overwrite that SILENTLY CLOBBERS their commits — the 3-arg compare-and-swap is the correctness backstop (it turns a concurrent merge into a failed update you retry, never a lost one), and the /tmp/vk-merge-lock mutex below is best-effort serialization only: it guarantees nothing. PROCEDURE, per repo you merge, with BASE set to this card's base branch (usually main) and `repo=$(basename \"$(git rev-parse --show-toplevel)\")`: (1) LOCK — best-effort and BOUNDED, so a leaked lock cannot wedge you: try up to 60 times to `mkdir \"/tmp/vk-merge-lock-$repo\"`, sleeping 10s between tries, and once you hold it `trap 'rmdir \"/tmp/vk-merge-lock-$repo\" 2>/dev/null' EXIT INT TERM`. If you never get it you MAY proceed without it — the compare-and-swap makes the worst case a failed merge you retry, never a lost commit — but say so in your report. (2) MERGE — loop at most 5 attempts: pin the base you are merging onto with `OLD=$(git rev-parse --verify \"refs/heads/$BASE^{commit}\")`, written exactly that way — fully qualified through `refs/heads/`, NOT a bare `git rev-parse \"$BASE\"` — because git resolves a short name by checking `refs/tags/` BEFORE `refs/heads/`, so a tag sharing the branch name would pin the TAG, and the pin MUST name the same ref the compare-and-swap below updates or the CAS fails every single time while reporting itself as the retryable race. Then run `git rebase \"$OLD\"`, and if it conflicts, resolve the conflicted paths, `git add` them, then run `git rebase --continue`, repeating until the rebase completes — during a rebase you do NOT run `git commit`, you never run `git rebase --skip`, and you never force anything; if a conflict cannot be resolved, run `git rebase --abort`, report it, and stop. RE-RUN THE BUILD AND TESTS HERE, because a clean rebase is NOT a passing build. Mint the squash commit with `NEW=$(git commit-tree \"HEAD^{tree}\" -p \"$OLD\" -m \"CARD-ID: one-line summary\")`, then land it with the 3-arg compare-and-swap `git update-ref -m \"CARD-ID: squash merge\" \"refs/heads/$BASE\" \"$NEW\" \"$OLD\"`. A SUCCESSFUL 3-ARG update-ref IS AUTHORITATIVE: the moment it exits 0 you HAVE LANDED — break out of the loop, NEVER retry after a successful compare-and-swap, and never re-open the loop, because re-rebasing commits that are already applied would mint an EMPTY DUPLICATE commit. On failure, MATCH THE ERROR PRECISELY: only an error containing `is at ... but expected` is the race (the base moved) — re-pin OLD the same fully-qualified way, re-rebase, re-run the build, re-mint the commit, and retry. Any other failure is NOT a race and must be surfaced rather than retried — in particular `reference is missing but expected` means the ref was DELETED. If all 5 attempts fail, report that the base kept moving and stop: NEVER fake success. (3) VERIFY BY ANCESTRY, never by tip equality: run `git merge-base --is-ancestor \"$NEW\" \"refs/heads/$BASE\"` and require exit 0 — that is the ONLY pass/fail gate, and it is MONOTONIC: once true it stays true forever, no matter how many other lanes land on top of you afterwards. Do NOT gate on `git log --oneline $BASE -1` showing your commit, and do NOT gate on `git diff $BASE HEAD` being empty: both compare against the MOVING TIP, so a concurrent lane landing microseconds after your successful compare-and-swap makes them false even though your merge landed perfectly — and acting on that false negative would send you back through the loop to mint an empty duplicate commit. You MAY print `git log --oneline $BASE -3` as a human-readable sanity check, but it is NOT the gate. Local only — do NOT `git push`, do NOT open a PR. Report that you squash-merged to the base branch, with the SHA."
+prompt = "构建通过后，由你亲自把这张卡片的分支 squash 合并到基础分支。本阶段被列出，就是对你的授权，不要再等待额外批准。需要人工审批时，那是等待批准（Wait-for-approval）阶段的职责。两条铁律：(a) 你位于一个 linked worktree 中，`git checkout main` 根本行不通，永远不要尝试。(b) 其他泳道会并发地向同一基础分支合并。两参数的 `git update-ref refs/heads/main $NEW` 是盲目覆盖，会悄悄吞掉它们的提交。三参数的 compare-and-swap 才是正确性的兜底：它把并发合并变成一次可重试的失败更新，而绝不会造成提交丢失。下方的 /tmp/vk-merge-lock 互斥锁只是尽力而为的串行化，它什么都不保证。操作流程（PROCEDURE）：对你合并的每个仓库执行。其中 BASE 设为这张卡片的基础分支（通常是 main），并设置 `repo=$(basename \"$(git rev-parse --show-toplevel)\")`。(1) LOCK——尽力而为且有界（BOUNDED），泄漏的锁不会卡死你。最多尝试 60 次去 `mkdir \"/tmp/vk-merge-lock-$repo\"`，每次间隔 10 秒。一旦持有锁，就执行 `trap 'rmdir \"/tmp/vk-merge-lock-$repo\" 2>/dev/null' EXIT INT TERM`。如果始终拿不到锁，你可以在没有锁的情况下继续，但要在报告中说明这一点。compare-and-swap 保证最坏情况只是一次可重试的失败合并，绝不会丢失提交。(2) MERGE——最多循环 5 次尝试。第一步，用 `OLD=$(git rev-parse --verify \"refs/heads/$BASE^{commit}\")` 钉住你要合并上去的基础分支。必须严格这样写，完整限定到 `refs/heads/`，而不是裸的 `git rev-parse \"$BASE\"`。原因：git 解析短名称时会先检查 `refs/tags/` 再检查 `refs/heads/`，所以与分支同名的标签会把 TAG 钉住。而且这个钉住的引用必须与下方 compare-and-swap 更新的引用相同，否则 CAS 每次都会失败，还把自己报告成可重试的竞争。然后运行 `git rebase \"$OLD\"`。如果出现冲突，就解决冲突的文件，用 `git add` 暂存，再运行 `git rebase --continue`，重复直到 rebase 完成。rebase 期间不要运行 `git commit`，永远不要运行 `git rebase --skip`，也不要强行做任何事。如果冲突无法解决，运行 `git rebase --abort`，报告并停止。接着在此处重新运行构建和测试，因为干净的 rebase 不等于通过构建。然后用 `NEW=$(git commit-tree \"HEAD^{tree}\" -p \"$OLD\" -m \"CARD-ID: one-line summary\")` 铸出 squash 提交，再用三参数 compare-and-swap 落地：`git update-ref -m \"CARD-ID: squash merge\" \"refs/heads/$BASE\" \"$NEW\" \"$OLD\"`。三参数 update-ref 成功即权威：它退出码为 0 的那一刻你就已经落地，跳出循环。compare-and-swap 成功之后绝不重试，也绝不再打开循环，因为对已应用的提交再次 rebase 会铸出一个空的重复提交。失败时，精确匹配错误信息。只有包含 `is at ... but expected` 的错误才是竞争（基础分支移动了）：以同样的完整限定方式重新钉住 OLD，重新 rebase，重新构建，重新铸提交，然后重试。任何其他失败都不是竞争，必须上报而不是重试；尤其是 `reference is missing but expected` 意味着该引用被删除了。如果 5 次尝试全部失败，报告基础分支一直在移动并停止，绝不伪造成功。(3) 用祖先关系验证，绝不用 tip 相等。运行 `git merge-base --is-ancestor \"$NEW\" \"refs/heads/$BASE\"` 并要求退出码为 0。这是唯一的通过/失败判据，而且是单调的：一旦为真就永远为真，无论之后有多少其他泳道落在你上面。不要以 `git log --oneline $BASE -1` 显示你的提交作为判据，也不要以 `git diff $BASE HEAD` 为空作为判据。两者都与移动中的 tip 比较：并发的泳道会在你 compare-and-swap 成功后微秒级落地，让这两个判据变成假，即使你的合并完美落地。据此误判会让你重新进入循环，铸出空的重复提交。你可以打印 `git log --oneline $BASE -3` 作为人类可读的健全性检查，但它不是判据。仅限本地：不要 `git push`，不要创建 PR。最后报告你已 squash 合并到基础分支，并附上 SHA。"
 
 [[stage]]
 id = "pr"
-label = "Open pull request"
+label = "创建 Pull Request"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, open a pull request for this card against the base branch."
+prompt = "工作实现并评审完毕后，针对基础分支为这张卡片创建一个 pull request。"

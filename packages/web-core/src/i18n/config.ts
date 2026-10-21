@@ -3,12 +3,15 @@ import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 import { uiLanguageToI18nCode } from './languages';
 
-// Import translation files (English only — the local-only fork ships one
-// language; translation files for other locales were removed)
+// Import translation files (English + Simplified Chinese)
 import enCommon from './locales/en/common.json';
 import enSettings from './locales/en/settings.json';
 import enProjects from './locales/en/projects.json';
 import enTasks from './locales/en/tasks.json';
+import zhCommon from './locales/zh/common.json';
+import zhSettings from './locales/zh/settings.json';
+import zhProjects from './locales/zh/projects.json';
+import zhTasks from './locales/zh/tasks.json';
 
 const resources = {
   en: {
@@ -16,6 +19,12 @@ const resources = {
     settings: enSettings,
     projects: enProjects,
     tasks: enTasks,
+  },
+  zh: {
+    common: zhCommon,
+    settings: zhSettings,
+    projects: zhProjects,
+    tasks: zhTasks,
   },
 };
 
@@ -27,7 +36,8 @@ i18n
     fallbackLng: 'en',
     defaultNS: 'common',
     debug: import.meta.env.DEV,
-    supportedLngs: ['en'],
+    supportedLngs: ['en', 'zh'],
+    nonExplicitSupportedLngs: true, // resolve zh-CN / zh-TW -> zh
     load: 'currentOnly', // Load exact language code
 
     interpolation: {

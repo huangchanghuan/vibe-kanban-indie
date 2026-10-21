@@ -1,68 +1,68 @@
 name = "WikiLLM"
-description = "Knowledge-augmented dev flow: recall prior knowledge before planning and enrich the knowledge base after shipping."
+description = "知识增强的开发流程：在规划之前先召回已有知识，交付之后再充实知识库。"
 
 [[stage]]
 id = "orchestrate"
-label = "Orchestrate (auto-drive)"
+label = "编排驱动"
 default_enabled = false
-prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
+prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
 
 [[stage]]
 id = "spec"
-label = "Create spec"
+label = "创建规格"
 default_enabled = true
-prompt = "FIRST, check the card description: if it already contains the full spec — meaning `### Outcome`, `### Scope`, and `### Testing & acceptance criteria` EACH occur at the START of a line (prefix match, so `### Outcome — what's different when this is done` counts), and NOT inside a fenced code block or a block quote; ALL THREE are required and if any one is missing take the OTHERWISE path — then copy it through instead of writing one from scratch: write `SPEC.md` at the workspace root as exactly the line `## Task: <the card's title, verbatim>`, then a blank line, then the card description verbatim (the description does NOT carry the title — it begins at the `**In one sentence:**` line — so reconstruct that first line from the card's title field). Strip the `## Pipeline` block from the body, anchored to STANDALONE marker lines: take the LAST line whose entire content is exactly `<!-- vk:pipeline:start -->`, and the first line after it whose entire content is exactly `<!-- vk:pipeline:end -->`, and delete everything between them including both marker lines. A marker mentioned inside a prose line is not a delimiter — leave that line alone, since a spec may legitimately quote the markers while describing them. Then collapse the blank run the strip leaves behind so the file ends with a single trailing newline. Also sweep out any stray executor-pin bullet (a line matching `- Run this card with the ... execution agent: pass ...`) left outside the block — it normally sits inside the block and goes with it, so this is just a safety net. Do not edit, re-author, or re-verify the copied text: adopt the card's decisions as settled. Then report \"spec adopted from card description\". (The card description is already in your task context; if you were given only the card title/id, `get_issue` the card to fetch it.) OTHERWISE: Write a technical spec for this card and save it to `SPEC.md` at the workspace root (one level above the repo, next to `CLAUDE.md` — never inside the repo) before implementing."
+prompt = "第一步，检查卡片描述。如果它已经包含完整规格，就直接沿用，不要从零撰写。完整规格的判定条件如下，三者缺一不可：`### Outcome`、`### Scope` 和 `### Testing & acceptance criteria` 各自出现在某一行的行首，前缀匹配即可，因此 `### Outcome — what's different when this is done` 也算；并且这些标题不在围栏代码块或引用块内。任何一条不满足，就执行下面的“否则”分支。沿用时的写法：在工作区根目录写入 `SPEC.md`，内容恰好为一行 `## Task: <the card's title, verbatim>`，然后一个空行，然后逐字照抄卡片描述。描述本身不包含标题——它从 `**In one sentence:**` 一行开始——所以要用卡片的标题字段重建第一行。接下来从正文中剥离 `## Pipeline` 块，以独立成行的标记行为锚点：找到整行内容恰好为 `<!-- vk:pipeline:start -->` 的最后一行，再找到其后第一行整行内容恰好为 `<!-- vk:pipeline:end -->` 的行，删除两者之间的所有内容，包括这两行标记本身。普通文本行中提到的标记不是分隔符，不要动那一行——规格在描述这些标记时合法地引用它们是允许的。然后把剥离后多余空行压成一个，使文件以单个换行符结尾。同时清扫任何遗留在块外的残留 executor-pin 行（匹配 `- Run this card with the ... execution agent: pass ...` 的行）；它通常位于块内并随之删除，这只是个保险。不要编辑、重写或重新验证被复制的文本。把卡片已做的决定视为已定的决定，不要重新讨论或推翻。然后报告 \"spec adopted from card description\"。卡片描述已经在你的任务上下文中；如果只给了你卡片标题/id，用 `get_issue` 获取该卡片。否则执行以下流程：为这张卡片撰写技术规格，保存到工作区根目录的 `SPEC.md`（仓库上一级、`CLAUDE.md` 旁边，绝不要放进仓库内），然后再实现。"
 
 [[stage]]
 id = "recall-knowledge"
-label = "Recall prior knowledge"
+label = "召回已有知识"
 default_enabled = true
-prompt = "Before planning, recall what this project already knows: search the project knowledge base for pages relevant to this card and distill the matches into a `PRIOR_KNOWLEDGE.md` at the workspace root for the spec and plan stages to build on. Read-only on the knowledge base; if it is empty (first card), note that and continue."
+prompt = "在规划之前，先召回这个项目已知的内容。在项目知识库中搜索与这张卡片相关的页面，把匹配结果提炼成工作区根目录的 `PRIOR_KNOWLEDGE.md`，供规格和计划阶段作为基础。对知识库保持只读。如果知识库是空的（第一张卡片），说明这一点并继续。"
 
 [[stage]]
 id = "plan"
-label = "Create plan"
+label = "创建计划"
 default_enabled = true
-prompt = "Write a step-by-step implementation plan and save it to `IMPLEMENTATION_PLAN.md` at the workspace root (one level above the repo, next to `CLAUDE.md` — never inside the repo)."
+prompt = "撰写一份分步实现计划，保存到工作区根目录的 `IMPLEMENTATION_PLAN.md`（仓库上一级、`CLAUDE.md` 旁边，绝不要放进仓库内）。"
 
 [[stage]]
 id = "plan-review"
-label = "Review plan"
+label = "评审计划"
 default_enabled = false
-prompt = "Have the implementation plan reviewed (e.g. a codex plan review, read-only) and resolve blockers before writing code."
+prompt = "对实现计划进行评审（例如一次只读的 codex 计划评审），并在编写代码之前解决阻塞项。"
 
 [[stage]]
 id = "wait-for-approval"
-label = "Wait for approval"
+label = "等待批准"
 default_enabled = false
-prompt = "Pause for operator approval at this point: commit the work so far, then stop and wait for the operator's decision or instructions before continuing to later stages — do not advance on your own until the operator responds."
+prompt = "在此处暂停，等待操作者的批准。先提交目前为止的工作，然后停下。等到操作者给出决定或指示后，再继续后续阶段。在操作者回应之前，不要自行推进。"
 
 [[stage]]
 id = "code-review"
-label = "Review via Codex"
+label = "Codex 评审"
 default_enabled = true
-prompt = "After implementing, run an independent Codex review of the card's diff (the `codex-review` skill / Codex CLI), iterating until it reports no significant findings. Address confirmed findings and re-verify before marking the card ready."
+prompt = "实现完成后，对卡片的 diff 运行一次独立的 Codex 评审（`codex-review` 技能 / Codex CLI）。反复迭代，直到不再报告重大发现。处理完已确认的发现并重新验证之后，才能把卡片标记为就绪。"
 
 [[stage]]
 id = "update-docs"
-label = "Update documentation"
+label = "更新文档"
 default_enabled = false
-prompt = "Update the documentation affected by this change so the docs match what shipped, and commit it before marking the card ready."
+prompt = "更新受本次变更影响的文档，使文档与实际交付的内容一致。在把卡片标记为就绪之前，先提交文档变更。"
 
 [[stage]]
 id = "enrich-knowledge"
-label = "Enrich knowledge base"
+label = "充实知识库"
 default_enabled = true
-prompt = "Once the change is implemented (and reviewed/documented, if those stages ran), distill any reusable knowledge from what shipped into the project knowledge base: add or update topic pages, tag each with this card's id, refresh the index, and commit the knowledge base before marking the card ready. If nothing reusable emerged, say so (\"no new knowledge to record\") rather than writing filler."
+prompt = "变更实现完成后（如果评审或文档阶段运行了，则在其之后），从交付的内容中提炼可复用的知识写入项目知识库。做法：新增或更新主题页面，为每个页面打上这张卡片的 id 标签，刷新索引，并在把卡片标记为就绪之前提交知识库。如果没有产生可复用的知识，如实说明（\"no new knowledge to record\"），不要写凑数的内容。"
 
 [[stage]]
 id = "merge"
-label = "Merge to base"
+label = "合并到基础分支"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, squash-merge this card's branch into the base branch yourself — this stage being listed is your authorization, so do not wait for a go-ahead; gating, when wanted, is the Wait-for-approval stage's job."
+prompt = "工作实现并评审完毕后，由你亲自把这张卡片的分支 squash 合并到基础分支。本阶段被列出，就是对你的授权，不要再等待额外批准。需要人工审批时，那是等待批准（Wait-for-approval）阶段的职责。"
 
 [[stage]]
 id = "pr"
-label = "Open pull request"
+label = "创建 Pull Request"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, open a pull request for this card against the base branch."
+prompt = "工作实现并评审完毕后，针对基础分支为这张卡片创建一个 pull request。"

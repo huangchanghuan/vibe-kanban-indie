@@ -1,52 +1,52 @@
-name = "Async Fable"
-description = "Heavyweight subagent fan-out flow: Fable subagents write the spec and plan (marked heavy), an Opus subagent writes the code, and Codex reviews the plan and the diff. Run this pipeline with a Claude Code (Opus) execution agent."
+name = "异步 Fable"
+description = "重量级子代理派发流程：Fable 子代理撰写规格与计划（标记为 heavy），Opus 子代理编写代码，Codex 评审计划与 diff。用 Claude Code (Opus) 执行代理运行本流水线。"
 
 [[stage]]
 id = "orchestrate"
-label = "Orchestrate (auto-drive)"
+label = "编排驱动"
 default_enabled = false
-prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
+prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
 
 [[stage]]
 id = "spec"
-label = "Spec via Fable subagent"
+label = "Fable 子代理写规格"
 default_enabled = true
 heavy = true
-prompt = "FIRST, check the card description: if it already contains the full spec — meaning `### Outcome`, `### Scope`, and `### Testing & acceptance criteria` EACH occur at the START of a line (prefix match, so `### Outcome — what's different when this is done` counts), and NOT inside a fenced code block or a block quote; ALL THREE are required and if any one is missing take the OTHERWISE path — then do NOT spawn the subagent. Instead write `SPEC.md` at the workspace root as exactly: the line `## Task: <the card's title, verbatim>`, then a blank line, then the card description verbatim (the description does NOT carry the title — it begins at the `**In one sentence:**` line — so reconstruct that first line from the card's title field). Strip the `## Pipeline` block from the body, anchored to STANDALONE marker lines: take the LAST line whose entire content is exactly `<!-- vk:pipeline:start -->`, and the first line after it whose entire content is exactly `<!-- vk:pipeline:end -->`, and delete everything between them including both marker lines. A marker mentioned inside a prose line is not a delimiter — leave that line alone, since a spec may legitimately quote the markers while describing them. Then collapse the blank run the strip leaves behind so the file ends with a single trailing newline. Also sweep out any stray executor-pin bullet (a line matching `- Run this card with the ... execution agent: pass ...`) left outside the block — it normally sits inside the block and goes with it, so this is just a safety net. Do not edit, re-author, or re-verify the copied text: adopt the card's decisions as settled. Then report \"spec adopted from card description\" and move on to the next stage. (The card description is already in your task context; if you were given only the card title/id, `get_issue` the card to fetch it.) OTHERWISE, run the full spec stage: Do NOT write the spec yourself. Spawn the `vibe-kanban-indie:product` subagent on the Fable model (Agent tool with model: 'fable'; fall back to a generic Agent with model: 'fable' if the plugin agent is unavailable) to write the technical spec for this card to `SPEC.md` at the workspace root — pass the workspace-root path plus the card description in the subagent prompt. When it returns, verify `SPEC.md` exists and covers the card's outcome, scope, and acceptance criteria; if it is missing or thin, re-spawn the subagent with the concrete gaps rather than writing the spec in the main loop."
+prompt = "第一步，检查卡片描述。如果它已经包含完整规格，就不要派发子代理，直接在工作区根目录写入 `SPEC.md`，内容恰好为：一行 `## Task: <the card's title, verbatim>`，然后一个空行，然后逐字照抄卡片描述。完整规格的判定条件如下，三者缺一不可：`### Outcome`、`### Scope` 和 `### Testing & acceptance criteria` 各自出现在某一行的行首，前缀匹配即可，因此 `### Outcome — what's different when this is done` 也算；并且这些标题不在围栏代码块或引用块内。任何一条不满足，就执行下面的“否则”分支。描述本身不包含标题——它从 `**In one sentence:**` 一行开始——所以要用卡片的标题字段重建第一行。接下来从正文中剥离 `## Pipeline` 块，以独立成行的标记行为锚点：找到整行内容恰好为 `<!-- vk:pipeline:start -->` 的最后一行，再找到其后第一行整行内容恰好为 `<!-- vk:pipeline:end -->` 的行，删除两者之间的所有内容，包括这两行标记本身。普通文本行中提到的标记不是分隔符，不要动那一行——规格在描述这些标记时合法地引用它们是允许的。然后把剥离后多余空行压成一个，使文件以单个换行符结尾。同时清扫任何遗留在块外的残留 executor-pin 行（匹配 `- Run this card with the ... execution agent: pass ...` 的行）；它通常位于块内并随之删除，这只是个保险。不要编辑、重写或重新验证被复制的文本。把卡片已做的决定视为已定的决定，不要重新讨论或推翻。然后报告 \"spec adopted from card description\" 并进入下一阶段。卡片描述已经在你的任务上下文中；如果只给了你卡片标题/id，用 `get_issue` 获取该卡片。否则执行以下流程，即完整的规格阶段：不要亲自撰写规格。用 Fable 模型派发 `vibe-kanban-indie:product` 子代理（Agent 工具并指定 model: 'fable'; 若插件代理不可用，回退为 model: 'fable' 的通用 Agent），为这张卡片撰写技术规格并写入工作区根目录的 `SPEC.md`。在子代理 prompt 中传入工作区根路径和卡片描述。子代理返回后，验证 `SPEC.md` 存在且覆盖了卡片的结果、范围和验收标准。如果内容缺失或覆盖不足，就带着具体缺口重新派发子代理，不要在主循环中亲自撰写规格。"
 
 [[stage]]
 id = "plan"
-label = "Plan via Fable subagent"
+label = "Fable 子代理写计划"
 default_enabled = true
 heavy = true
-prompt = "Do NOT write the plan yourself. Spawn the `vibe-kanban-indie:planner` subagent on the Fable model (Agent tool with model: 'fable'; fall back to a generic Agent with model: 'fable' if the plugin agent is unavailable) to turn `SPEC.md` into a step-by-step `IMPLEMENTATION_PLAN.md` at the workspace root — pass the workspace-root path plus the card description in the subagent prompt. When it returns, verify the plan's steps are grounded in real repo files; if not, re-spawn the subagent with the concrete gaps rather than writing the plan in the main loop. When the plan is verified, measure it and report the single line `PLAN-FACTS: <size> KB, <n> steps, <n> files, <n> open decisions` — the byte size of `IMPLEMENTATION_PLAN.md`, its numbered steps, the distinct files its steps name, and the open items in its Risks / open questions section; the next two stages read this line."
+prompt = "不要亲自撰写计划。用 Fable 模型派发 `vibe-kanban-indie:planner` 子代理（Agent 工具并指定 model: 'fable'; 若插件代理不可用，回退为 model: 'fable' 的通用 Agent），把 `SPEC.md` 转化为工作区根目录的分步 `IMPLEMENTATION_PLAN.md`。在子代理 prompt 中传入工作区根路径和卡片描述。子代理返回后，验证计划中的每个步骤都落实在真实仓库文件上；如果不是，就带着具体缺口重新派发子代理，不要在主循环中亲自撰写计划。计划验证通过后，对它进行度量并报告单行 `PLAN-FACTS: <size> KB, <n> steps, <n> files, <n> open decisions`。这一行的含义：`IMPLEMENTATION_PLAN.md` 的字节大小、编号步骤数、步骤中点名的不同文件数，以及其 Risks / open questions 部分中的未决项。接下来两个阶段会读取这一行。"
 
 [[stage]]
 id = "plan-review-codex"
-label = "Codex plan review"
+label = "Codex 计划评审"
 default_enabled = true
-prompt = "GATE FIRST — read the plan stage's PLAN-FACTS line (measure `IMPLEMENTATION_PLAN.md` yourself if it is missing): if the plan is under 40 KB AND has 0 open decisions AND the card's **Routing:** line (when it carries one) does not force the review with plan-review: yes, SKIP this stage — report the single line `PLAN-GATE: plan-review skipped (<size> KB, <n> open decisions)` and move on; a small, closed plan does not repay an independent review, which routinely costs more than the plan itself. Otherwise report `PLAN-GATE: plan-review running (<size> KB, <n> open decisions)` and proceed: have Codex independently review `IMPLEMENTATION_PLAN.md`. Run Codex as the reviewer (`codex exec --sandbox read-only` over the plan, or the `codex-review-plan` skill if available) — do NOT review the plan yourself. Iterate until Codex reports no significant findings, capped at TWO review passes — findings still open after the second pass mean the plan (or the spec above it) is mis-scoped: revise the plan (re-run the planning stage) or escalate; never pay a third pass. Resolve confirmed findings by revising the plan (re-run the planner subagent, or edit `IMPLEMENTATION_PLAN.md` directly) before proceeding to the coding stage. This is a read-only plan review: do not modify code here."
+prompt = "第一步，先过把关阶段。读取计划阶段的 PLAN-FACTS 行；若缺失，就自己度量 `IMPLEMENTATION_PLAN.md`。跳过本阶段的条件如下，三者同时满足才跳过：计划小于 40 KB；未决决策为 0；卡片的 **Routing:** 行（如果带有）没有用 plan-review: yes 强制评审。满足就跳过本阶段，报告单行 `PLAN-GATE: plan-review skipped (<size> KB, <n> open decisions)` 并继续。理由：一个小而封闭的计划不值得独立评审，独立评审的开销通常比计划本身还大。否则报告 `PLAN-GATE: plan-review running (<size> KB, <n> open decisions)` 并继续，让 Codex 独立评审 `IMPLEMENTATION_PLAN.md`。以 Codex 作为评审者运行（对计划执行 `codex exec --sandbox read-only`，或使用 `codex-review-plan` 技能，若可用），不要亲自评审计划。迭代直到 Codex 不再报告重大发现，最多两轮评审。第二轮之后仍未解决的发现，说明计划（或其上的规格）范围有问题：要么修订计划（重跑计划阶段），要么上报。绝不支付第三轮。在进入编码阶段之前，先通过修订计划解决已确认的发现（重跑 planner 子代理，或直接编辑 `IMPLEMENTATION_PLAN.md`）。这是只读的计划评审：不要在此处修改代码。"
 
 [[stage]]
 id = "code-subagent"
-label = "Code via Opus subagent"
+label = "Opus 子代理写代码"
 default_enabled = true
-prompt = "MODEL CHECK FIRST — pick the coder model WITHIN this pipeline's own family before delegating: if the plan blew its envelope (PLAN-FACTS at or above 40 KB, or open design decisions surfaced during planning), step the coder model up one tier inside the family — on a Claude Code pipeline sonnet steps up to opus; a coder already at its family ceiling stays put. NEVER cross families: OpenCode pipelines run MiniMax / GLM / Kimi models only, Claude Code pipelines run Sonnet / Opus / Fable models only — Codex appears on both, but only ever as the reviewer, never as a build model. An operator's card-level model pin always beats this advice. Report the single line `CODER-MODEL: <model> — <one-phrase reason>`. Then: Do NOT write the implementation yourself. Spawn the `vibe-kanban-indie:coder` subagent (Opus model; fall back to a generic Agent with model: 'opus' if the plugin agent is unavailable) to implement the card strictly from `SPEC.md` and `IMPLEMENTATION_PLAN.md` — pass the workspace-root path plus the card description in the subagent prompt, and instruct it to follow the plan step by step and report what it changed. When it returns, verify the result compiles and passes checks (`pnpm run check` / `cargo test` as applicable); if the subagent's work is incomplete or broken, spawn a follow-up coder subagent with the concrete gaps rather than fixing the code in the main loop."
+prompt = "第一步，做模型检查。在派发之前，在本流水线自己的模型家族内选择编码模型。如果计划超出预算（PLAN-FACTS 达到或超过 40 KB，或规划期间出现了未决的设计决策），就在家族内把编码模型升一档：Claude Code 流水线中 sonnet 升到 opus；已在家族上限的编码模型保持不变。绝不跨家族。OpenCode 流水线只运行 MiniMax / GLM / Kimi 模型；Claude Code 流水线只运行 Sonnet / Opus / Fable 模型。Codex 两边都会出现，但只作为评审者，绝不做构建模型。操作者对卡片级别的模型指定永远优先于本建议。报告单行 `CODER-MODEL: <model> — <one-phrase reason>`。然后：不要亲自实现。派发 `vibe-kanban-indie:coder` 子代理（Opus 模型；若插件代理不可用，回退为 model: 'opus' 的通用 Agent），严格依据 `SPEC.md` 和 `IMPLEMENTATION_PLAN.md` 实现这张卡片。在子代理 prompt 中传入工作区根路径和卡片描述，并指示它逐步遵循计划、报告它改了什么。子代理返回后，验证结果可编译并通过检查（按需运行 `pnpm run check` / `cargo test`）。如果子代理的工作不完整或有问题，就带着具体缺口派发后续 coder 子代理，不要在主循环中亲自修代码。"
 
 [[stage]]
 id = "code-review"
-label = "Review via Codex"
+label = "Codex 评审"
 default_enabled = false
-prompt = "After implementing, run an independent Codex review of the card's diff (the `codex-review` skill / Codex CLI), iterating until it reports no significant findings. Address confirmed findings and re-verify before marking the card ready."
+prompt = "实现完成后，对卡片的 diff 运行一次独立的 Codex 评审（`codex-review` 技能 / Codex CLI）。反复迭代，直到不再报告重大发现。处理完已确认的发现并重新验证之后，才能把卡片标记为就绪。"
 
 [[stage]]
 id = "merge"
-label = "Merge to base"
+label = "合并到基础分支"
 default_enabled = true
-prompt = "When the work is implemented and reviewed, squash-merge this card's branch into the base branch yourself — this stage being listed is your authorization, so do not wait for a go-ahead; gating, when wanted, is the Wait-for-approval stage's job."
+prompt = "工作实现并评审完毕后，由你亲自把这张卡片的分支 squash 合并到基础分支。本阶段被列出，就是对你的授权，不要再等待额外批准。需要人工审批时，那是等待批准（Wait-for-approval）阶段的职责。"
 
 [[stage]]
 id = "pr"
-label = "Open pull request"
+label = "创建 Pull Request"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, open a pull request for this card against the base branch."
+prompt = "工作实现并评审完毕后，针对基础分支为这张卡片创建一个 pull request。"
