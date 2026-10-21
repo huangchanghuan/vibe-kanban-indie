@@ -9,6 +9,26 @@ export const PIPELINE_START = '<!-- vk:pipeline:start -->';
 export const PIPELINE_END = '<!-- vk:pipeline:end -->';
 
 /**
+ * Locate a delimiter as a STANDALONE line and return its character offset.
+ *
+ * Several pipeline prompt fragments (the spec stage) quote the marker strings
+ * inside backticks while instructing the agent how to strip the block, so a
+ * bare `indexOf` would find a marker *inside prose* and cut the block in half
+ * — leaving a truncated tail of the block stranded in the description. The
+ * composer always emits the markers as standalone lines, and the agent-facing
+ * prompt applies the same "whole line exactly" rule, so matching lines (not
+ * substrings) is the correct contract on both sides.
+ */
+function indexOfStandaloneLine(text: string, marker: string): number {
+  let offset = 0;
+  for (const line of text.split('\n')) {
+    if (line.trim() === marker) return offset;
+    offset += line.length + 1; // +1 for the joined '\n'
+  }
+  return -1;
+}
+
+/**
  * Instruction line that leads the stage list. Pipelines are now authored by
  * vibe-kanban (from a pipeline file) and delivered pre-ordered, so the execution
  * agent runs them top-to-bottom rather than choosing which apply.
@@ -164,8 +184,8 @@ export function extractManualLines(
   block: string,
   knownStageFragments: ReadonlySet<string>
 ): string[] {
-  const start = block.indexOf(PIPELINE_START);
-  const endDelim = block.indexOf(PIPELINE_END);
+  const start = indexOfStandaloneLine(block, PIPELINE_START);
+  const endDelim = indexOfStandaloneLine(block, PIPELINE_END);
   const inner =
     start === -1
       ? block
@@ -284,11 +304,13 @@ export function composePipelineBlock(
  * remaining prose with trailing whitespace trimmed.
  */
 export function stripPipelineBlock(description: string): string {
-  const start = description.indexOf(PIPELINE_START);
+  const start = indexOfStandaloneLine(description, PIPELINE_START);
   if (start === -1) return description;
-  const endIdx = description.indexOf(PIPELINE_END, start);
+  const endIdx = indexOfStandaloneLine(description, PIPELINE_END);
   const after =
-    endIdx === -1 ? '' : description.slice(endIdx + PIPELINE_END.length);
+    endIdx === -1 || endIdx < start
+      ? ''
+      : description.slice(endIdx + PIPELINE_END.length);
   return (description.slice(0, start) + after).replace(/\s+$/, '');
 }
 
@@ -301,10 +323,10 @@ export function extractPipelineBlock(
   description: string | null | undefined
 ): string {
   if (!description) return '';
-  const start = description.indexOf(PIPELINE_START);
+  const start = indexOfStandaloneLine(description, PIPELINE_START);
   if (start === -1) return '';
-  const endIdx = description.indexOf(PIPELINE_END, start);
-  if (endIdx === -1) return description.slice(start);
+  const endIdx = indexOfStandaloneLine(description, PIPELINE_END);
+  if (endIdx === -1 || endIdx < start) return description.slice(start);
   return description.slice(start, endIdx + PIPELINE_END.length);
 }
 
@@ -350,10 +372,10 @@ function shortenStageLabel(text: string): string {
  * past the delimiters).
  */
 function extractPipelineBlockText(description: string): string {
-  const start = description.indexOf(PIPELINE_START);
+  const start = indexOfStandaloneLine(description, PIPELINE_START);
   if (start !== -1) {
-    const end = description.indexOf(PIPELINE_END, start);
-    return end === -1
+    const end = indexOfStandaloneLine(description, PIPELINE_END);
+    return end === -1 || end < start
       ? description.slice(start + PIPELINE_START.length)
       : description.slice(start + PIPELINE_START.length, end);
   }

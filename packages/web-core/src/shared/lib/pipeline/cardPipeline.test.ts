@@ -306,6 +306,41 @@ describe('composePipelineBlock', () => {
     expect(wrapped).toBe(single);
   });
 
+  it('markers quoted inside a prompt fragment do not truncate the block', () => {
+    // The spec-stage prompt teaches the agent to strip the block by quoting
+    // the marker strings inside backticks. A bare indexOf would treat that
+    // quoted occurrence as the real delimiter and cut the block in half,
+    // stranding the tail in the description prose.
+    const quotingFragment =
+      '取整行内容恰好为 `<!-- vk:pipeline:start -->` 的最后一行，以及其后第一行整行内容恰好为 `<!-- vk:pipeline:end -->` 的行，删除两者之间的所有内容。';
+    const quotingPipeline: Pipeline = {
+      ...pipeline,
+      stages: [
+        {
+          id: 'spec',
+          label: 'Create spec',
+          prompt_fragment: quotingFragment,
+          default_enabled: true,
+          heavy: false,
+        },
+      ],
+    };
+    const block = composePipelineBlock(quotingPipeline, ['spec'], '', null);
+    const description = appendPipelineToDescription('卡片正文。', block);
+
+    // The full block must extract intact (quoted markers are not delimiters).
+    expect(extractPipelineBlock(description)).toBe(block);
+
+    // Re-appending (pipeline switch) replaces the whole block and leaves no
+    // truncated tail of the old block in the prose.
+    const block2 = composePipelineBlock(pipeline, ['plan'], '', null);
+    const replaced = appendPipelineToDescription(description, block2);
+    expect(replaced.startsWith('卡片正文。')).toBe(true);
+    expect(replaced).toContain('1. Write a plan.');
+    expect(replaced).not.toContain(quotingFragment);
+    expect(replaced.match(/vk:pipeline:start/g)?.length).toBe(1);
+  });
+
   it('LOCKED: basic + wikillm default-enabled union yields the canonical merge order', () => {
     const block = composePipelineBlock(
       [basicPipeline, wikillmPipeline],
