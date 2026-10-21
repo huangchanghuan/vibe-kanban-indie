@@ -1732,17 +1732,21 @@ impl ClaudeLogProcessor {
                         }
                     }
                     Some(subtype) => {
-                        let entry = NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!("System: {subtype}"),
-                            metadata: Some(
-                                serde_json::to_value(claude_json)
-                                    .unwrap_or(serde_json::Value::Null),
-                            ),
-                        };
-                        let idx = entry_index_provider.next();
-                        patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                        // Skip high-frequency internal telemetry subtypes (e.g. "thinking_tokens")
+                        // to avoid flooding the conversation with noisy system entries.
+                        if subtype != "thinking_tokens" {
+                            let entry = NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::SystemMessage,
+                                content: format!("System: {subtype}"),
+                                metadata: Some(
+                                    serde_json::to_value(claude_json)
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                            };
+                            let idx = entry_index_provider.next();
+                            patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                        }
                     }
                     None => {
                         let entry = NormalizedEntry {
@@ -3465,6 +3469,20 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e.entry_type, NormalizedEntryType::TurnComplete)),
             "assistant end_turn alone must not emit a TurnComplete marker"
+        );
+    }
+
+    #[test]
+    fn thinking_tokens_system_events_are_not_rendered() {
+        // High-frequency internal telemetry (emitted per thinking delta by some
+        // Claude-compatible endpoints) must not flood the conversation log.
+        let thinking_tokens = r#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":5,"estimated_tokens_delta":4,"session_id":"sess-123","uuid":"u-1"}"#;
+        let entries = normalize(&serde_json::from_str(thinking_tokens).unwrap(), "");
+        assert!(
+            entries
+                .iter()
+                .all(|e| e.content != "System: thinking_tokens"),
+            "thinking_tokens telemetry must not be rendered, got {entries:?}"
         );
     }
 
