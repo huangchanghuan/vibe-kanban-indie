@@ -87,12 +87,11 @@ export function composeOrchestratorPrompt(
   enabledIds: ReadonlySet<string>
 ): string {
   const base =
-    `/loop ${ORCHESTRATOR_LOOP_INTERVAL} Run one tick of the board loop per your ` +
-    `agent definition (vibe-kanban-indie:orchestrator): pick the mode from retained ` +
-    `context — MONITOR the active cards by default; run a full SWEEP only when a ` +
-    `sweep trigger fires (nothing active, a lane freed, an operator instruction, or ` +
-    `the periodic backstop). Triage any operator instruction first (intake / ` +
-    `decider / handle directly).`;
+    `/loop ${ORCHESTRATOR_LOOP_INTERVAL} 按你的 agent 定义（vibe-kanban-indie:orchestrator）` +
+    `执行一轮看板循环 tick：根据保留的上下文选择模式 — 默认 MONITOR（监视活跃卡片）；` +
+    `仅当清扫触发条件满足时才执行一次全量 SWEEP（没有活跃卡片、有泳道空出、` +
+    `收到操作员指令、或周期性兜底到点）。操作员指令优先分诊处理` +
+    `（intake / decider / 直接处理）。`;
   const picked = ORCHESTRATOR_DIRECTIVES.filter((d) => enabledIds.has(d.id));
   if (picked.length === 0) return base;
   const flags = picked.map((d) => `- ${d.id}`).join('\n');

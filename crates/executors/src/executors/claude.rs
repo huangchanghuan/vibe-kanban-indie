@@ -2644,6 +2644,12 @@ impl StreamingContentState {
 /// `queue-operation` records track queued-prompt bookkeeping (the user queuing
 /// or removing a queued prompt; observed `operation` values `enqueue` and
 /// `remove`) and carry no content worth rendering, so they are skipped too.
+///
+/// Claude ≥2.1 added more session-bookkeeping families observed in real
+/// transcripts: `agent-setting` / `atis-latch` (agent/ATIS session state),
+/// `api-request` / `api-request-shape` / `api-request-blob` (request digests
+/// and payload blobs — the blob merely re-embeds the outgoing user message),
+/// and `cost-state` (running cost totals). All content-free bookkeeping.
 pub fn is_transcript_only_record_type(record_type: &str) -> bool {
     matches!(
         record_type,
@@ -2656,6 +2662,12 @@ pub fn is_transcript_only_record_type(record_type: &str) -> bool {
             | "agent-name"
             | "summary"
             | "queue-operation"
+            | "agent-setting"
+            | "atis-latch"
+            | "api-request"
+            | "api-request-shape"
+            | "api-request-blob"
+            | "cost-state"
     )
 }
 
@@ -3311,6 +3323,12 @@ mod tests {
             "file-history-snapshot",
             "ai-title",
             "last-prompt",
+            "agent-setting",
+            "atis-latch",
+            "api-request",
+            "api-request-shape",
+            "api-request-blob",
+            "cost-state",
         ] {
             assert!(
                 is_transcript_only_record_type(t),
@@ -3329,6 +3347,21 @@ mod tests {
         assert!(
             patches_to_entries(&mode_patches).is_empty(),
             "permission-mode record should be skipped"
+        );
+
+        // Claude >=2.1 bookkeeping families (request digests/blobs, agent
+        // settings, cost totals) are skipped too — regression for the
+        // "Unrecognized JSON message" flood in headed orchestrator sessions.
+        // The blob re-embeds the outgoing user message, which must NOT be
+        // double-rendered as an entry.
+        let blob_line = r#"{"type":"api-request-blob","sessionId":"11111111-1111-1111-1111-111111111111","hash":"5708135bc82579281f3ff1f4d4f3fe9c3738","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>Codebase and user instructions are shown below.</system-reminder>"}]}}"#;
+        let blob_json: ClaudeJson = serde_json::from_str(blob_line).unwrap();
+        let mut p3 = ClaudeLogProcessor::new();
+        let blob_patches =
+            p3.normalize_entries(&blob_json, "/repo", &EntryIndexProvider::test_new());
+        assert!(
+            patches_to_entries(&blob_patches).is_empty(),
+            "api-request-blob record should be skipped"
         );
 
         // queue-operation records (queued-prompt bookkeeping) are skipped for
