@@ -57,6 +57,7 @@ pub enum EditorType {
     Zed,
     Xcode,
     GoogleAntigravity,
+    Trae,
     Custom,
 }
 
@@ -100,6 +101,9 @@ impl EditorConfig {
             EditorType::Zed => "zed",
             EditorType::Xcode => "xed",
             EditorType::GoogleAntigravity => "antigravity",
+            // Trae (ByteDance, VS Code fork). The CN build's CLI is `trae-cn`;
+            // the international build ships `trae`.
+            EditorType::Trae => "trae-cn",
             EditorType::Custom => {
                 // Custom editor - use user-provided command or fallback to VSCode
                 self.custom_command.as_deref().unwrap_or("code")
@@ -144,7 +148,10 @@ impl EditorConfig {
         self.auto_install_extension
             && matches!(
                 self.editor_type,
-                EditorType::VsCode | EditorType::VsCodeInsiders | EditorType::Cursor
+                EditorType::VsCode
+                    | EditorType::VsCodeInsiders
+                    | EditorType::Cursor
+                    | EditorType::Trae
             )
     }
 

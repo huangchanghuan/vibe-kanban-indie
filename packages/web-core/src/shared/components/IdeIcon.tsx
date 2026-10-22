@@ -50,6 +50,9 @@ export function IdeIcon({ editorType, className = 'h-4 w-4' }: IdeIconProps) {
         ? '/ide/antigravity-dark.svg'
         : '/ide/antigravity-light.svg';
       break;
+    case EditorType.TRAE:
+      ideIconPath = '/ide/trae.png';
+      break;
   }
 
   return <img src={ideIconPath} alt={ideName} className={className} />;

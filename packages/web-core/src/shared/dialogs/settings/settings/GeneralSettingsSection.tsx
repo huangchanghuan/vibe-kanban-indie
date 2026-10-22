@@ -407,6 +407,7 @@ export function GeneralSettingsSection() {
           draft?.editor.editor_type === EditorType.CURSOR ||
           draft?.editor.editor_type === EditorType.WINDSURF ||
           draft?.editor.editor_type === EditorType.GOOGLE_ANTIGRAVITY ||
+          draft?.editor.editor_type === EditorType.TRAE ||
           draft?.editor.editor_type === EditorType.ZED) && (
           <>
             <SettingsField
