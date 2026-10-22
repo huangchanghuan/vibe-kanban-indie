@@ -5,7 +5,7 @@ description = "基于 Opus 主循环的子代理派发流程：Opus 子代理撰
 id = "orchestrate"
 label = "编排驱动"
 default_enabled = false
-prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
+prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
 
 [[stage]]
 id = "spec"
