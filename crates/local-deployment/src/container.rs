@@ -2454,6 +2454,30 @@ impl ContainerService for LocalContainerService {
         workspace: &Workspace,
     ) -> Result<ContainerRef, ContainerError> {
         self.touch(workspace).await?;
+
+        // No-worktree kinds (orchestrator, recurrent) are repo-independent: their
+        // container is a fixed on-demand dir, not a git worktree. Mirror `create`:
+        // ensure the dir exists and skip the repo plumbing entirely — a follow-up
+        // to such a workspace must not fail just because it has no repositories.
+        if let Some(kind) = workspace.kind.filter(|k| k.is_no_worktree()) {
+            let dir = Self::fixed_dir_for_kind(workspace, kind);
+            tokio::fs::create_dir_all(&dir).await.map_err(|e| {
+                ContainerError::Other(anyhow!(
+                    "Failed to create {kind:?} directory {}: {e}",
+                    dir.display()
+                ))
+            })?;
+            if workspace.container_ref.is_none() {
+                Workspace::update_container_ref(
+                    &self.db.pool,
+                    workspace.id,
+                    &dir.to_string_lossy(),
+                )
+                .await?;
+            }
+            return Ok(dir.to_string_lossy().to_string());
+        }
+
         let (repositories, workspace_inputs) = self.workspace_repo_inputs(workspace.id).await?;
 
         let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
