@@ -1235,6 +1235,12 @@ fn failure_exit_status() -> std::process::ExitStatus {
 }
 
 /// One poll iteration's decision for [`LocalContainerService::auto_confirm_headed_startup`],
+/// The trust prompt row selected by default in Claude ≥2.1 — pressing Enter
+/// while it is highlighted exits the agent instead of trusting the folder.
+/// Newer safe defaults (or older claude versions) don't render this marker,
+/// in which case a plain Enter confirms correctly.
+const TRUST_UNSAFE_DEFAULT: &str = "\u{276f} No, exit";
+
 /// derived purely from the current pane text + progress so far (no I/O), so it is
 /// directly unit-testable without a real tmux session.
 #[derive(Debug, PartialEq, Eq)]
@@ -1883,6 +1889,22 @@ impl LocalContainerService {
             ) {
                 AutoConfirmAction::Continue => {}
                 AutoConfirmAction::ConfirmTrust { stop_after } => {
+                    // Claude ≥2.1 highlights "No, exit" as the trust prompt's
+                    // DEFAULT option; pressing Enter on that default accepts the
+                    // exit branch and kills the agent (and its tmux session)
+                    // instantly — the session dies before any transcript exists,
+                    // so the kanban UI never sees output. When the captured pane
+                    // shows that unsafe default, move the selection to the
+                    // "Yes, proceed" row first. Older claude versions default to
+                    // the safe option and only need Enter.
+                    if pane.contains(TRUST_UNSAFE_DEFAULT) {
+                        if terminal::tmux_send_key(&tmux_session, "Down")
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
                     if terminal::tmux_send_enter(&tmux_session).await.is_err() {
                         return;
                     }
@@ -3227,5 +3249,21 @@ mod auto_confirm_tests {
     fn no_match_continues() {
         let action = next_auto_confirm_action("$ some other shell output", false, true, true);
         assert_eq!(action, AutoConfirmAction::Continue);
+    }
+
+    // Claude ≥2.1 renders the trust prompt with "❯ No, exit" highlighted by
+    // default. The navigation guard must detect exactly that marker (cursor +
+    // unsafe row) so the caller moves the selection before pressing Enter;
+    // a pane without the marker (safe default, older claude) must not
+    // trigger the navigation.
+    #[test]
+    fn trust_unsafe_default_marker_detection() {
+        let pane = "\n ❯ No, exit\n   Yes, proceed\n";
+        assert!(pane.contains(TRUST_UNSAFE_DEFAULT));
+
+        // Cursor on the safe row (or no menu at all): no navigation needed.
+        let safe = "\n   No, exit\n ❯ Yes, proceed\n";
+        assert!(!safe.contains(TRUST_UNSAFE_DEFAULT));
+        assert!("$ claude — working".contains(TRUST_UNSAFE_DEFAULT) == false);
     }
 }
