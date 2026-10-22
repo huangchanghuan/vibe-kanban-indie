@@ -1,62 +1,62 @@
 name = "SpecKit"
-description = "Spec-Driven Development flow: run the /speckit.* slash commands in order, writing artifacts under specs/<branch>/."
+description = "规格驱动开发（Spec-Driven Development）流程：按顺序运行 /speckit.* 斜杠命令，工件写入 specs/<branch>/ 之下。"
 
 [[stage]]
 id = "orchestrate"
-label = "Orchestrate (auto-drive)"
+label = "编排驱动"
 default_enabled = false
-prompt = "Have the orchestrator agent pick this card up and drive it to done autonomously, running the card's pipeline stages in order — regardless of which board column the card is in (it may be started even from Todo)."
+prompt = "让编排器代理接手这张卡片，自主推进到完成。按顺序执行卡片的各个流水线阶段，无论卡片当前位于看板的哪一列，甚至可以从 Todo 列启动。"
 
 [[stage]]
 id = "speckit-constitution"
-label = "SpecKit: Constitution"
+label = "SpecKit: 宪法"
 default_enabled = true
-prompt = "SpecKit: establish or refresh the project constitution at `.specify/memory/constitution.md` (run `/speckit.constitution`) before specifying."
+prompt = "SpecKit：先在 `.specify/memory/constitution.md` 建立或刷新项目宪法（运行 `/speckit.constitution`；命令文件在 `.claude/commands/speckit.constitution.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行），然后再编写规格。"
 
 [[stage]]
 id = "speckit-specify"
-label = "SpecKit: Specify"
+label = "SpecKit: 规格编写"
 default_enabled = true
-prompt = "SpecKit: write the feature specification to `specs/<current branch>/spec.md` (run `/speckit.specify`), focusing on what and why."
+prompt = "SpecKit：把特性规格写入 `specs/<current branch>/spec.md`（运行 `/speckit.specify`；命令文件在 `.claude/commands/speckit.specify.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行），聚焦是什么（what）与为什么（why）。"
 
 [[stage]]
 id = "speckit-clarify"
-label = "SpecKit: Clarify"
+label = "SpecKit: 澄清"
 default_enabled = true
-prompt = "SpecKit: resolve the spec's open questions (run `/speckit.clarify`) before planning."
+prompt = "SpecKit：在规划之前，先解决规格中的未决问题（运行 `/speckit.clarify`；命令文件在 `.claude/commands/speckit.clarify.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行）。"
 
 [[stage]]
 id = "speckit-plan"
-label = "SpecKit: Plan"
+label = "SpecKit: 计划"
 default_enabled = true
-prompt = "SpecKit: write the technical plan to `specs/<current branch>/plan.md` plus research/data-model/contracts as needed (run `/speckit.plan`)."
+prompt = "SpecKit：把技术方案写入 `specs/<current branch>/plan.md`，并按需补充 research/data-model/contracts（运行 `/speckit.plan`；命令文件在 `.claude/commands/speckit.plan.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行）。"
 
 [[stage]]
 id = "speckit-tasks"
-label = "SpecKit: Tasks"
+label = "SpecKit: 任务"
 default_enabled = true
-prompt = "SpecKit: break the plan into a dependency-ordered, parallel-aware `specs/<current branch>/tasks.md` (run `/speckit.tasks`)."
+prompt = "SpecKit：把计划拆解为按依赖排序、感知并行性的 `specs/<current branch>/tasks.md`（运行 `/speckit.tasks`；命令文件在 `.claude/commands/speckit.tasks.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行）。"
 
 [[stage]]
 id = "speckit-analyze"
-label = "SpecKit: Analyze"
+label = "SpecKit: 分析"
 default_enabled = true
-prompt = "SpecKit: cross-check spec, plan, and tasks for gaps and constitution violations (run `/speckit.analyze`) before implementing."
+prompt = "SpecKit：在实现之前，交叉检查规格、计划与任务中的缺口和违反宪法之处（运行 `/speckit.analyze`；命令文件在 `.claude/commands/speckit.analyze.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行）。"
 
 [[stage]]
 id = "speckit-implement"
-label = "SpecKit: Implement"
+label = "SpecKit: 实现"
 default_enabled = true
-prompt = "SpecKit: execute `specs/<current branch>/tasks.md` in dependency order, doing `[P]` tasks within a layer together and ticking each task off as it lands (run `/speckit.implement`)."
+prompt = "SpecKit：按依赖顺序执行 `specs/<current branch>/tasks.md`。同一层内的 `[P]` 任务一起做，每个任务落地后打勾（运行 `/speckit.implement`；命令文件在 `.claude/commands/speckit.implement.md`——Claude Code 直接调用该命令，其他执行器读取该文件并严格按其指令执行）。"
 
 [[stage]]
 id = "code-review"
-label = "Review via Codex"
+label = "Codex 评审"
 default_enabled = false
-prompt = "After implementing, run an independent Codex review of the card's diff (the `codex-review` skill / Codex CLI), iterating until it reports no significant findings. Address confirmed findings and re-verify before marking the card ready."
+prompt = "实现完成后，对卡片的 diff 运行一次独立的 Codex 评审（`codex-review` 技能 / Codex CLI）。反复迭代，直到不再报告重大发现。处理完已确认的发现并重新验证之后，才能把卡片标记为就绪。"
 
 [[stage]]
 id = "merge"
-label = "Merge to base"
+label = "合并到基础分支"
 default_enabled = false
-prompt = "When the work is implemented and reviewed, squash-merge this card's branch into the base branch yourself — this stage being listed is your authorization, so do not wait for a go-ahead; gating, when wanted, is the Wait-for-approval stage's job."
+prompt = "工作实现并评审完毕后，由你亲自把这张卡片的分支 squash 合并到基础分支。本阶段被列出，就是对你的授权，不要再等待额外批准。需要人工审批时，那是等待批准（Wait-for-approval）阶段的职责。"

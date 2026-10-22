@@ -845,10 +845,11 @@ mod tests {
         ensure_seeded(d.path()).unwrap();
         std::fs::write(d.path().join("basic.toml"), "name=\"Hacked\"\n").unwrap();
         let restored = reset_one(d.path(), "basic").unwrap();
-        assert_eq!(restored.name, "Basic");
+        // Bundled basic.toml is localized (zh); assert against its actual name.
+        assert_eq!(restored.name, "基础");
         assert!(reset_one(d.path(), "not-bundled").is_err());
         let all = reset_all(d.path()).unwrap();
-        assert!(all.iter().any(|p| p.id == "basic" && p.name == "Basic"));
+        assert!(all.iter().any(|p| p.id == "basic" && p.name == "基础"));
     }
 
     #[test]
@@ -925,8 +926,13 @@ mod tests {
         // The durable invariant is that the spec prompt targets the workspace root, never
         // the repo root; assert that instead of re-pasting a ~2000-char prompt literal
         // (brittle: any future prompt tweak breaks it, and it invites escaping bugs).
+        // Bundled prompts are localized (zh): 工作区根 = workspace root, 仓库根 = repo root.
         assert!(!spec.prompt_fragment.contains("repo root"));
-        assert!(spec.prompt_fragment.contains("workspace root"));
+        assert!(!spec.prompt_fragment.contains("仓库根"));
+        assert!(
+            spec.prompt_fragment.contains("workspace root")
+                || spec.prompt_fragment.contains("工作区根")
+        );
     }
 
     // --- Seed-manifest tests (via the private `ensure_seeded_with` seam) ---
