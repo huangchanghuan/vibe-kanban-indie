@@ -41,6 +41,69 @@ use sdk::{
 use slash_commands::{OpencodeSlashCommand, hardcoded_slash_commands};
 use types::{Config, ProviderModelInfo};
 
+/// Static description of an opencode-lineage coding CLI server.
+///
+/// Mobile Coder is an enterprise fork of opencode whose server API, SSE event
+/// stream and permission model are wire-compatible, but it renames the
+/// binary, the startup banner, the `OPENCODE_*` environment variables, the
+/// Basic-auth username and the config paths. Centralising those strings lets
+/// the [`Opencode`] implementation drive both flavors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ServerFlavor {
+    /// Human-facing name used in log/error messages.
+    pub display_name: &'static str,
+    /// Program spawned to serve the headless HTTP API (resolved on PATH).
+    pub program: &'static str,
+    /// Args appended to [`Self::program`] to start the HTTP server.
+    pub serve_args: &'static [&'static str],
+    /// Prefix of the stdout line announcing the listening URL.
+    pub listen_prefix: &'static str,
+    /// Environment variable prefix, e.g. `OPENCODE` / `MOBILE_CODER`.
+    pub env_prefix: &'static str,
+    /// Default Basic-auth username (also the `{env_prefix}_SERVER_USERNAME` value).
+    pub username: &'static str,
+    /// HTTP header carrying the working directory.
+    pub directory_header: &'static str,
+    /// XDG config-home prefix (e.g. `~/.config/opencode`).
+    pub xdg_prefix: &'static str,
+    /// Config file names inside the XDG config dir (primary, fallback).
+    pub config_files: (&'static str, &'static str),
+    /// Home-directory installation indicator (e.g. `~/.opencode`).
+    pub home_indicator: &'static str,
+}
+
+impl ServerFlavor {
+    pub(crate) fn env_var(&self, suffix: &str) -> String {
+        format!("{}_{}", self.env_prefix, suffix)
+    }
+}
+
+pub(crate) const OPENCODE_FLAVOR: ServerFlavor = ServerFlavor {
+    display_name: "OpenCode",
+    program: "opencode",
+    serve_args: &["serve", "--hostname", "127.0.0.1", "--port", "0"],
+    listen_prefix: "opencode server listening on ",
+    env_prefix: "OPENCODE",
+    username: "opencode",
+    directory_header: "x-opencode-directory",
+    xdg_prefix: "opencode",
+    config_files: ("opencode.json", "opencode.jsonc"),
+    home_indicator: ".opencode",
+};
+
+pub(crate) const MOBILE_CODER_FLAVOR: ServerFlavor = ServerFlavor {
+    display_name: "Mobile Coder",
+    program: "mobile",
+    serve_args: &["serve", "--hostname", "127.0.0.1", "--port", "0"],
+    listen_prefix: "Mobile Coder server listening on ",
+    env_prefix: "MOBILE_CODER",
+    username: "mobile-coder",
+    directory_header: "x-mobile-coder-directory",
+    xdg_prefix: "mobile-coder",
+    config_files: ("mobile-coder.json", "mobile-coder.jsonc"),
+    home_indicator: ".mobile-coder",
+};
+
 #[derive(Derivative, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[derivative(Debug, PartialEq)]
 pub struct Opencode {
@@ -88,17 +151,19 @@ impl Drop for OpencodeServer {
 type ServerPassword = String;
 
 impl Opencode {
-    fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        // Spawn the locally-installed `opencode` binary directly (resolved on
-        // PATH) instead of wrapping it in `npx -y opencode-ai@...`. The npx
-        // wrapper puts the real opencode in a grandchild process group that
-        // the backend's killpg() cannot reliably kill on macOS (EPERM), so
-        // spawned servers leaked and piled up. A direct child is killed
-        // cleanly.
-        let builder = CommandBuilder::new("opencode")
+    fn build_command_builder_for(
+        &self,
+        flavor: ServerFlavor,
+    ) -> Result<CommandBuilder, CommandBuildError> {
+        // Spawn the locally-installed binary directly (resolved on PATH)
+        // instead of wrapping it in an npx package. The npx wrapper puts the
+        // real server in a grandchild process group that the backend's
+        // killpg() cannot reliably kill on macOS (EPERM), so spawned servers
+        // leaked and piled up. A direct child is killed cleanly.
+        let builder = CommandBuilder::new(flavor.program)
             // Pass hostname/port as separate args so OpenCode treats them as explicitly set
             // (it checks `process.argv.includes(\"--port\")` / `\"--hostname\"`).
-            .extend_params(["serve", "--hostname", "127.0.0.1", "--port", "0"]);
+            .extend_params(flavor.serve_args.iter().copied());
         apply_overrides(builder, &self.cmd)
     }
 
@@ -112,11 +177,15 @@ impl Opencode {
         &self,
         current_dir: &Path,
         env: &ExecutionEnv,
+        flavor: ServerFlavor,
     ) -> Result<(AsyncGroupChild, ServerPassword), ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
+        let command_parts = self.build_command_builder_for(flavor)?.build_initial()?;
         let (program_path, args) = command_parts.into_resolved().await?;
 
         let server_password = generate_server_password();
+
+        let username_var = flavor.env_var("SERVER_USERNAME");
+        let password_var = flavor.env_var("SERVER_PASSWORD");
 
         let mut command = Command::new(program_path);
         command
@@ -128,8 +197,8 @@ impl Opencode {
             .env("NPM_CONFIG_LOGLEVEL", "error")
             .env("NODE_NO_WARNINGS", "1")
             .env("NO_COLOR", "1")
-            .env("OPENCODE_SERVER_USERNAME", "opencode")
-            .env("OPENCODE_SERVER_PASSWORD", &server_password)
+            .env(&username_var, flavor.username)
+            .env(&password_var, &server_password)
             .args(&args);
 
         env.clone()
@@ -146,13 +215,15 @@ impl Opencode {
         &self,
         current_dir: &Path,
         env: &ExecutionEnv,
+        flavor: ServerFlavor,
     ) -> Result<OpencodeServer, ExecutorError> {
-        let (mut child, server_password) = self.spawn_server_process(current_dir, env).await?;
+        let (mut child, server_password) =
+            self.spawn_server_process(current_dir, env, flavor).await?;
         let server_stdout = child.inner().stdout.take().ok_or_else(|| {
             ExecutorError::Io(std::io::Error::other("OpenCode server missing stdout"))
         })?;
 
-        let base_url = wait_for_server_url(server_stdout, None).await?;
+        let base_url = wait_for_server_url(server_stdout, None, flavor).await?;
 
         Ok(OpencodeServer {
             child: Some(child),
@@ -167,6 +238,7 @@ impl Opencode {
         prompt: &str,
         resume_session: Option<&str>,
         env: &ExecutionEnv,
+        flavor: ServerFlavor,
     ) -> Result<SpawnedChild, ExecutorError> {
         let slash_command = OpencodeSlashCommand::parse(prompt);
         let combined_prompt = if slash_command.is_some() {
@@ -175,7 +247,8 @@ impl Opencode {
             self.append_prompt.combine_prompt(prompt)
         };
 
-        let (mut child, server_password) = self.spawn_server_process(current_dir, env).await?;
+        let (mut child, server_password) =
+            self.spawn_server_process(current_dir, env, flavor).await?;
         let server_stdout = child.inner().stdout.take().ok_or_else(|| {
             ExecutorError::Io(std::io::Error::other("OpenCode server missing stdout"))
         })?;
@@ -202,17 +275,17 @@ impl Opencode {
 
         tokio::spawn(async move {
             // Wait for server to print listening URL
-            let base_url = match wait_for_server_url(server_stdout, Some(log_writer.clone())).await
-            {
-                Ok(url) => url,
-                Err(err) => {
-                    let _ = log_writer
-                        .log_error(format!("OpenCode startup error: {err}"))
-                        .await;
-                    let _ = exit_signal_tx.send(ExecutorExitResult::Failure);
-                    return;
-                }
-            };
+            let base_url =
+                match wait_for_server_url(server_stdout, Some(log_writer.clone()), flavor).await {
+                    Ok(url) => url,
+                    Err(err) => {
+                        let _ = log_writer
+                            .log_error(format!("OpenCode startup error: {err}"))
+                            .await;
+                        let _ = exit_signal_tx.send(ExecutorExitResult::Failure);
+                        return;
+                    }
+                };
 
             let config = RunConfig {
                 base_url,
@@ -229,6 +302,7 @@ impl Opencode {
                 commit_reminder,
                 commit_reminder_prompt,
                 repo_context,
+                flavor,
             };
 
             let result = match slash_command {
@@ -326,6 +400,7 @@ fn format_tail(captured: Vec<String>) -> String {
 async fn wait_for_server_url(
     stdout: tokio::process::ChildStdout,
     log_writer: Option<LogWriter>,
+    flavor: ServerFlavor,
 ) -> Result<String, ExecutorError> {
     let mut lines = tokio::io::BufReader::new(stdout).lines();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
@@ -334,7 +409,8 @@ async fn wait_for_server_url(
     loop {
         if tokio::time::Instant::now() > deadline {
             return Err(ExecutorError::Io(std::io::Error::other(format!(
-                "Timed out waiting for OpenCode server to print listening URL.\nServer output tail:\n{}",
+                "Timed out waiting for {} server to print listening URL.\nServer output tail:\n{}",
+                flavor.display_name,
                 format_tail(captured)
             ))));
         }
@@ -343,7 +419,8 @@ async fn wait_for_server_url(
             Ok(Ok(Some(line))) => line,
             Ok(Ok(None)) => {
                 return Err(ExecutorError::Io(std::io::Error::other(format!(
-                    "OpenCode server exited before printing listening URL.\nServer output tail:\n{}",
+                    "{} server exited before printing listening URL.\nServer output tail:\n{}",
+                    flavor.display_name,
                     format_tail(captured)
                 ))));
             }
@@ -362,7 +439,7 @@ async fn wait_for_server_url(
             captured.push(line.clone());
         }
 
-        if let Some(url) = line.trim().strip_prefix("opencode server listening on ") {
+        if let Some(url) = line.trim().strip_prefix(flavor.listen_prefix) {
             // Keep draining stdout to avoid backpressure on the server, but don't block startup.
             tokio::spawn(async move {
                 let mut lines = tokio::io::BufReader::new(lines.into_inner()).lines();
@@ -423,9 +500,8 @@ impl StandardCodingAgentExecutor for Opencode {
         prompt: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let env = setup_permissions_env(self.auto_approve, env);
-        let env = setup_compaction_env(self.auto_compact, &env);
-        self.spawn_inner(current_dir, prompt, None, &env).await
+        self.spawn_for(current_dir, prompt, None, env, OPENCODE_FLAVOR)
+            .await
     }
 
     async fn spawn_follow_up(
@@ -436,9 +512,7 @@ impl StandardCodingAgentExecutor for Opencode {
         _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let env = setup_permissions_env(self.auto_approve, env);
-        let env = setup_compaction_env(self.auto_compact, &env);
-        self.spawn_inner(current_dir, prompt, Some(session_id), &env)
+        self.spawn_for(current_dir, prompt, Some(session_id), env, OPENCODE_FLAVOR)
             .await
     }
 
@@ -451,87 +525,67 @@ impl StandardCodingAgentExecutor for Opencode {
     }
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
-        #[cfg(not(windows))]
-        {
-            let base_dirs = xdg::BaseDirectories::with_prefix("opencode");
-            // First try opencode.json, then opencode.jsonc
-            base_dirs
-                .get_config_file("opencode.json")
-                .filter(|p| p.exists())
-                .or_else(|| base_dirs.get_config_file("opencode.jsonc"))
-        }
-        #[cfg(windows)]
-        {
-            let config_dir = std::env::var("XDG_CONFIG_HOME")
-                .map(std::path::PathBuf::from)
-                .ok()
-                .or_else(|| dirs::home_dir().map(|p| p.join(".config")))
-                .map(|p| p.join("opencode"))?;
-
-            let path = Some(config_dir.join("opencode.json"))
-                .filter(|p| p.exists())
-                .unwrap_or_else(|| config_dir.join("opencode.jsonc"));
-            Some(path)
-        }
+        mcp_config_path_for(OPENCODE_FLAVOR)
     }
 
     fn get_availability_info(&self) -> AvailabilityInfo {
-        let mcp_config_found = self
-            .default_mcp_config_path()
-            .map(|p| p.exists())
-            .unwrap_or(false);
-
-        // Check multiple installation indicator paths:
-        // 1. XDG config dir: $XDG_CONFIG_HOME/opencode
-        // 2. XDG data dir: $XDG_DATA_HOME/opencode
-        // 3. XDG state dir: $XDG_STATE_HOME/opencode
-        // 4. OpenCode CLI home: ~/.opencode
-        #[cfg(not(windows))]
-        let installation_indicator_found = {
-            let base_dirs = xdg::BaseDirectories::with_prefix("opencode");
-
-            let config_dir_exists = base_dirs
-                .get_config_home()
-                .map(|config| config.exists())
-                .unwrap_or(false);
-
-            let data_dir_exists = base_dirs
-                .get_data_home()
-                .map(|data| data.exists())
-                .unwrap_or(false);
-
-            let state_dir_exists = base_dirs
-                .get_state_home()
-                .map(|state| state.exists())
-                .unwrap_or(false);
-
-            config_dir_exists || data_dir_exists || state_dir_exists
-        };
-
-        #[cfg(windows)]
-        let installation_indicator_found = std::env::var("XDG_CONFIG_HOME")
-            .ok()
-            .map(std::path::PathBuf::from)
-            .and_then(|p| p.join("opencode").exists().then_some(()))
-            .or_else(|| {
-                dirs::home_dir()
-                    .and_then(|p| p.join(".config").join("opencode").exists().then_some(()))
-            })
-            .is_some();
-
-        let home_opencode_exists = dirs::home_dir()
-            .map(|home| home.join(".opencode").exists())
-            .unwrap_or(false);
-
-        if mcp_config_found || installation_indicator_found || home_opencode_exists {
-            AvailabilityInfo::InstallationFound
-        } else {
-            AvailabilityInfo::NotFound
-        }
+        availability_for(OPENCODE_FLAVOR)
     }
 
     async fn discover_options(
         &self,
+        workdir: Option<&Path>,
+        repo_path: Option<&Path>,
+    ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
+        self.discover_options_for(
+            OPENCODE_FLAVOR,
+            BaseCodingAgent::Opencode,
+            workdir,
+            repo_path,
+        )
+        .await
+    }
+
+    fn get_preset_options(&self) -> ExecutorConfig {
+        ExecutorConfig {
+            executor: BaseCodingAgent::Opencode,
+            variant: None,
+            model_id: self.model.clone(),
+            agent_id: self.agent.clone(),
+            reasoning_id: self.variant.clone(),
+            permission_policy: Some(if self.auto_approve {
+                PermissionPolicy::Auto
+            } else {
+                PermissionPolicy::Supervised
+            }),
+        }
+    }
+}
+
+impl Opencode {
+    /// Shared spawn path; [`MobileCoder`](super::mobile_coder::MobileCoder)
+    /// delegates here with [`MOBILE_CODER_FLAVOR`].
+    pub(crate) async fn spawn_for(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        resume_session: Option<&str>,
+        env: &ExecutionEnv,
+        flavor: ServerFlavor,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let env = setup_permissions_env(self.auto_approve, env, flavor);
+        let env = setup_compaction_env(self.auto_compact, &env, flavor);
+        self.spawn_inner(current_dir, prompt, resume_session, &env, flavor)
+            .await
+    }
+
+    /// Discovery shared by both flavors; [`MobileCoder`](super::mobile_coder::MobileCoder)
+    /// calls this with [`MOBILE_CODER_FLAVOR`] and its own [`BaseCodingAgent`]
+    /// discriminant so option caches never collide.
+    pub(crate) async fn discover_options_for(
+        &self,
+        flavor: ServerFlavor,
+        base_executor: BaseCodingAgent,
         workdir: Option<&Path>,
         repo_path: Option<&Path>,
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
@@ -541,7 +595,6 @@ impl StandardCodingAgentExecutor for Opencode {
 
         let cache = executor_options_cache();
         let cmd_key = self.compute_models_cache_key();
-        let base_executor = BaseCodingAgent::Opencode;
 
         let (target_path, initial_options) = if let Some(wd) = workdir {
             let wd_buf = wd.to_path_buf();
@@ -607,19 +660,20 @@ impl StandardCodingAgentExecutor for Opencode {
             let mut final_options = default_discovered_options();
 
             let env = ExecutionEnv::new(RepoContext::default(), false, String::new());
-            let env = setup_permissions_env(this.auto_approve, &env);
+            let env = setup_permissions_env(this.auto_approve, &env, flavor);
 
-            let mut server = match this.spawn_server(&discovery_path, &env).await {
+            let mut server = match this.spawn_server(&discovery_path, &env, flavor).await {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!("Failed to spawn OpenCode server: {}", e);
+                    tracing::warn!("Failed to spawn {} server: {}", flavor.display_name, e);
                     yield patch::discovery_error(e.to_string());
                     return;
                 }
             };
 
             let directory = discovery_path.to_string_lossy();
-            let client = match build_authenticated_client(&directory, &server.server_password) {
+            let client = match build_authenticated_client(&directory, &server.server_password, flavor)
+            {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!("Failed to build authenticated client: {}", e);
@@ -742,14 +796,14 @@ impl StandardCodingAgentExecutor for Opencode {
                 let target_cache_key = ExecutorConfigCacheKey::new(
                     Some(path),
                     cmd_key_for_discovery.clone(),
-                    BaseCodingAgent::Opencode,
+                    base_executor,
                 );
                 cache.put(target_cache_key, final_options.clone());
             }
             let global_cache_key = ExecutorConfigCacheKey::new(
                 None,
                 cmd_key_for_discovery,
-                BaseCodingAgent::Opencode,
+                base_executor,
             );
             cache.put(global_cache_key, final_options);
 
@@ -765,37 +819,107 @@ impl StandardCodingAgentExecutor for Opencode {
             futures::stream::once(async move { initial_patch }).chain(discovery_stream),
         ))
     }
-
-    fn get_preset_options(&self) -> ExecutorConfig {
-        ExecutorConfig {
-            executor: BaseCodingAgent::Opencode,
-            variant: None,
-            model_id: self.model.clone(),
-            agent_id: self.agent.clone(),
-            reasoning_id: self.variant.clone(),
-            permission_policy: Some(if self.auto_approve {
-                PermissionPolicy::Auto
-            } else {
-                PermissionPolicy::Supervised
-            }),
-        }
-    }
 }
 
 fn default_to_true() -> bool {
     true
 }
 
-fn setup_permissions_env(auto_approve: bool, env: &ExecutionEnv) -> ExecutionEnv {
+/// Locate the flavor's MCP config file in the XDG config home
+/// (`~/.config/<xdg_prefix>/<config_files.0|.1>`).
+pub(crate) fn mcp_config_path_for(flavor: ServerFlavor) -> Option<std::path::PathBuf> {
+    #[cfg(not(windows))]
+    {
+        let base_dirs = xdg::BaseDirectories::with_prefix(flavor.xdg_prefix);
+        base_dirs
+            .get_config_file(flavor.config_files.0)
+            .filter(|p| p.exists())
+            .or_else(|| base_dirs.get_config_file(flavor.config_files.1))
+    }
+    #[cfg(windows)]
+    {
+        let config_dir = std::env::var("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.join(".config")))
+            .map(|p| p.join(flavor.xdg_prefix))?;
+
+        let path = Some(config_dir.join(flavor.config_files.0))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| config_dir.join(flavor.config_files.1));
+        Some(path)
+    }
+}
+
+/// Detect a flavor installation via its XDG dirs or home indicator directory.
+pub(crate) fn availability_for(flavor: ServerFlavor) -> AvailabilityInfo {
+    let mcp_config_found = mcp_config_path_for(flavor)
+        .map(|p| p.exists())
+        .unwrap_or(false);
+
+    #[cfg(not(windows))]
+    let installation_indicator_found = {
+        let base_dirs = xdg::BaseDirectories::with_prefix(flavor.xdg_prefix);
+
+        let config_dir_exists = base_dirs
+            .get_config_home()
+            .map(|config| config.exists())
+            .unwrap_or(false);
+
+        let data_dir_exists = base_dirs
+            .get_data_home()
+            .map(|data| data.exists())
+            .unwrap_or(false);
+
+        let state_dir_exists = base_dirs
+            .get_state_home()
+            .map(|state| state.exists())
+            .unwrap_or(false);
+
+        config_dir_exists || data_dir_exists || state_dir_exists
+    };
+
+    #[cfg(windows)]
+    let installation_indicator_found = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .and_then(|p| p.join(flavor.xdg_prefix).exists().then_some(()))
+        .or_else(|| {
+            dirs::home_dir().and_then(|p| {
+                p.join(".config")
+                    .join(flavor.xdg_prefix)
+                    .exists()
+                    .then_some(())
+            })
+        })
+        .is_some();
+
+    let home_dir_exists = dirs::home_dir()
+        .map(|home| home.join(flavor.home_indicator).exists())
+        .unwrap_or(false);
+
+    if mcp_config_found || installation_indicator_found || home_dir_exists {
+        AvailabilityInfo::InstallationFound
+    } else {
+        AvailabilityInfo::NotFound
+    }
+}
+
+fn setup_permissions_env(
+    auto_approve: bool,
+    env: &ExecutionEnv,
+    flavor: ServerFlavor,
+) -> ExecutionEnv {
     let mut env = env.clone();
 
-    let permissions = match env.get("OPENCODE_PERMISSION") {
+    let permission_var = flavor.env_var("PERMISSION");
+    let permissions = match env.get(&permission_var) {
         Some(existing) => Some(existing.to_string()),
         None => build_default_permissions(auto_approve),
     };
 
     if let Some(permissions) = permissions {
-        env.insert("OPENCODE_PERMISSION", &permissions);
+        env.insert(&permission_var, &permissions);
     }
     env
 }
@@ -808,14 +932,19 @@ fn build_default_permissions(auto_approve: bool) -> Option<String> {
     }
 }
 
-fn setup_compaction_env(auto_compact: bool, env: &ExecutionEnv) -> ExecutionEnv {
+fn setup_compaction_env(
+    auto_compact: bool,
+    env: &ExecutionEnv,
+    flavor: ServerFlavor,
+) -> ExecutionEnv {
     if !auto_compact {
         return env.clone();
     }
 
+    let config_var = flavor.env_var("CONFIG_CONTENT");
     let mut env = env.clone();
-    let merged = merge_compaction_config(env.get("OPENCODE_CONFIG_CONTENT").map(String::as_str));
-    env.insert("OPENCODE_CONFIG_CONTENT", merged);
+    let merged = merge_compaction_config(env.get(&config_var).map(String::as_str));
+    env.insert(&config_var, merged);
     env
 }
 
@@ -906,12 +1035,13 @@ impl OpencodeHeaded {
     /// `OPENCODE_CONFIG_CONTENT`. The container additionally injects profile env
     /// and npm noise-suppression vars.
     pub fn prepare_headed_env(&self, env: &ExecutionEnv) -> ExecutionEnv {
-        let env = setup_permissions_env(self.inner.auto_approve, env);
-        let env = setup_compaction_env(self.inner.auto_compact, &env);
-        let existing = env.get("OPENCODE_CONFIG_CONTENT").map(String::as_str);
+        let env = setup_permissions_env(self.inner.auto_approve, env, OPENCODE_FLAVOR);
+        let env = setup_compaction_env(self.inner.auto_compact, &env, OPENCODE_FLAVOR);
+        let config_var = OPENCODE_FLAVOR.env_var("CONFIG_CONTENT");
+        let existing = env.get(&config_var).map(String::as_str);
         let merged = merge_autoupdate_disabled(existing);
         let mut env = env;
-        env.insert("OPENCODE_CONFIG_CONTENT", &merged);
+        env.insert(&config_var, &merged);
         env
     }
 

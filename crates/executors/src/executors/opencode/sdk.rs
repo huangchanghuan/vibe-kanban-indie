@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use workspace_utils::approvals::{ApprovalStatus, QuestionAnswer, QuestionStatus};
 
 use super::{
-    slash_commands,
+    ServerFlavor, slash_commands,
     types::{OpencodeExecutorEvent, ProviderInfo, ProviderListResponse},
 };
 use crate::{
@@ -94,6 +94,8 @@ pub(super) struct RunConfig {
     pub commit_reminder: bool,
     pub commit_reminder_prompt: String,
     pub repo_context: RepoContext,
+    /// Which opencode-lineage CLI produced this session (auth + header names).
+    pub flavor: ServerFlavor,
 }
 
 /// Generate a cryptographically secure random password for OpenCode server auth.
@@ -242,7 +244,7 @@ pub(super) async fn run_session(
     log_writer: LogWriter,
     cancel: CancellationToken,
 ) -> Result<(), ExecutorError> {
-    let client = build_opencode_client(&config.directory, &config.server_password)?;
+    let client = build_opencode_client(&config.directory, &config.server_password, config.flavor)?;
 
     run_session_inner(config, log_writer, client, cancel).await
 }
@@ -253,7 +255,7 @@ pub(super) async fn run_slash_command(
     command: slash_commands::OpencodeSlashCommand,
     cancel: CancellationToken,
 ) -> Result<(), ExecutorError> {
-    let client = build_opencode_client(&config.directory, &config.server_password)?;
+    let client = build_opencode_client(&config.directory, &config.server_password, config.flavor)?;
 
     slash_commands::execute(config, command, log_writer, client, cancel.clone()).await
 }
@@ -397,38 +399,40 @@ async fn run_session_inner(
     Ok(())
 }
 
-fn build_default_headers(directory: &str, password: &str) -> HeaderMap {
+fn build_default_headers(flavor: ServerFlavor, directory: &str, password: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     if let Ok(value) = HeaderValue::from_str(directory) {
-        headers.insert("x-opencode-directory", value);
+        headers.insert(flavor.directory_header, value);
     }
-    let credentials = BASE64.encode(format!("opencode:{password}"));
+    let credentials = BASE64.encode(format!("{}:{password}", flavor.username));
     if let Ok(value) = HeaderValue::from_str(&format!("Basic {credentials}")) {
         headers.insert(AUTHORIZATION, value);
     }
     headers
 }
 
-/// Build HTTP client with OpenCode authentication headers.
-/// Uses Basic Auth: "opencode:{password}" base64 encoded.
+/// Build HTTP client with flavor-specific authentication headers.
+/// Uses Basic Auth: "{username}:{password}" base64 encoded.
 pub(super) fn build_authenticated_client(
     directory: &str,
     password: &str,
+    flavor: ServerFlavor,
 ) -> Result<reqwest::Client, ExecutorError> {
-    build_opencode_client(directory, password)
+    build_opencode_client(directory, password, flavor)
 }
 
 fn build_opencode_client(
     directory: &str,
     password: &str,
+    flavor: ServerFlavor,
 ) -> Result<reqwest::Client, ExecutorError> {
-    const OPENCODE_HTTP_TIMEOUT: Duration = Duration::from_secs(180);
-    const OPENCODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+    const HTTP_TIMEOUT: Duration = Duration::from_secs(180);
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
     reqwest::Client::builder()
-        .default_headers(build_default_headers(directory, password))
-        .connect_timeout(OPENCODE_CONNECT_TIMEOUT)
-        .timeout(OPENCODE_HTTP_TIMEOUT)
+        .default_headers(build_default_headers(flavor, directory, password))
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(HTTP_TIMEOUT)
         .build()
         .map_err(|err| ExecutorError::Io(io::Error::other(err)))
 }

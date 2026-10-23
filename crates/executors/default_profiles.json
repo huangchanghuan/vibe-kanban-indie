@@ -51,6 +51,13 @@
         }
       }
     },
+    "MOBILE_CODER": {
+      "DEFAULT": {
+        "MOBILE_CODER": {
+          "auto_approve": true
+        }
+      }
+    },
     "QWEN_CODE": {
       "DEFAULT": {
         "QWEN_CODE": {

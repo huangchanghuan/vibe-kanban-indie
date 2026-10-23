@@ -79,6 +79,7 @@ const AGENT_PRIORITY: BaseCodingAgent[] = [
   BaseCodingAgent.CLAUDE_CODE,
   BaseCodingAgent.CODEX,
   BaseCodingAgent.OPENCODE,
+  BaseCodingAgent.MOBILE_CODER,
   BaseCodingAgent.GEMINI,
 ];
 

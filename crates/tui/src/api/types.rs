@@ -172,6 +172,7 @@ pub const EXECUTORS: &[&str] = &[
     "GEMINI",
     "AMP",
     "OPENCODE",
+    "MOBILE_CODER",
     "CURSOR_AGENT",
     "QWEN_CODE",
     "COPILOT",
