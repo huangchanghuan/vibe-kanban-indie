@@ -243,9 +243,7 @@ describe('composePipelineBlock', () => {
   it('renders enabled stages as an ordered numbered list in pipeline order', () => {
     const block = composePipelineBlock(pipeline, ['plan', 'spec'], '', null);
     expect(block).toContain('## Pipeline: Basic');
-    expect(block).toContain(
-      'Execute these stages in the order listed. Do not add, skip, or reorder stages.'
-    );
+    expect(block).toContain('不要增加、跳过或重排阶段');
     // Order follows the pipeline definition, not the enabledIds argument order.
     expect(block).toContain('1. Write a spec.');
     expect(block).toContain('2. Write a plan.');
@@ -256,7 +254,7 @@ describe('composePipelineBlock', () => {
   it('instructs the agent to emit a VK-PIPELINE-STAGE marker per stage', () => {
     const block = composePipelineBlock(pipeline, ['plan', 'spec'], '', null);
     expect(block).toContain('VK-PIPELINE-STAGE: N');
-    expect(block).toContain('As you begin each numbered stage');
+    expect(block).toContain('输出单独一行');
   });
 
   it('does not instruct marker reporting when there are no stages', () => {

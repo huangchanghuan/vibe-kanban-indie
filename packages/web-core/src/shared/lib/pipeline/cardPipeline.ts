@@ -39,9 +39,20 @@ function indexOfStandaloneLine(text: string, marker: string): number {
  * "stage N of M" progress.
  */
 const ORDER_INSTRUCTION =
+  '按下面列出的顺序执行各阶段，不要增加、跳过或重排阶段。' +
+  '开始下面每个编号阶段时，输出单独一行，内容恰好为 `VK-PIPELINE-STAGE: N`' +
+  '（N 为你正在开始的阶段编号），以便跟踪流水线进度。';
+
+/**
+ * Earlier generated instruction lines (English era). `extractManualLines`
+ * still recognises them so re-composing an older card drops the stale
+ * generated line instead of stranding it as operator prose.
+ */
+const LEGACY_ORDER_INSTRUCTIONS: readonly string[] = [
   'Execute these stages in the order listed. Do not add, skip, or reorder stages. ' +
-  'As you begin each numbered stage below, output a single line exactly ' +
-  '`VK-PIPELINE-STAGE: N` (N = the number of the stage you are starting) so pipeline progress can be tracked.';
+    'As you begin each numbered stage below, output a single line exactly ' +
+    '`VK-PIPELINE-STAGE: N` (N = the number of the stage you are starting) so pipeline progress can be tracked.',
+];
 
 /** Matches an executor-pin line in any pinned form (any agent name). */
 const EXECUTOR_LINE_RE =
@@ -200,6 +211,7 @@ export function extractManualLines(
     if (line.trim().length === 0) continue;
     if (HEADING_RE.test(line)) continue;
     if (line === ORDER_INSTRUCTION) continue;
+    if (LEGACY_ORDER_INSTRUCTIONS.includes(line)) continue;
     if (EXECUTOR_LINE_RE.test(line)) continue;
     const numbered = line.match(NUMBERED_LINE_RE);
     if (numbered && knownStageFragments.has(numbered[1])) continue;
