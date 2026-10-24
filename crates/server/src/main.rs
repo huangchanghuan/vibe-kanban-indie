@@ -37,7 +37,15 @@ async fn main() -> Result<(), VibeKanbanError> {
     );
     let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
+        .with(
+            tracing_subscriber::fmt::layer()
+                // Render timestamps in the system's local timezone (e.g. +08:00
+                // Beijing time) instead of the default UTC.
+                .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
+                    "%Y-%m-%dT%H:%M:%S%.6f%:z".to_string(),
+                ))
+                .with_filter(env_filter),
+        )
         .init();
 
     // Create asset directory if it doesn't exist
