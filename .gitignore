@@ -107,3 +107,6 @@ IMPLEMENTATION_PLAN.md
 
 # WorkBuddy local session data
 .workbuddy/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
