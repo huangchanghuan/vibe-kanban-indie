@@ -77,6 +77,12 @@ const isRedo = (e: KeyboardEvent) =>
   !e.altKey &&
   ((isMac() && e.shiftKey && e.key.toLowerCase() === 'z') ||
     (!isMac() && !e.shiftKey && e.key.toLowerCase() === 'y'));
+/** True for Cmd/Ctrl+A (no Shift/Alt). */
+const isSelectAll = (e: KeyboardEvent) =>
+  (isMac() ? e.metaKey : e.ctrlKey) &&
+  !e.shiftKey &&
+  !e.altKey &&
+  e.key.toLowerCase() === 'a';
 
 /**
  * Returns the currently focused editable element (input/textarea/contentEditable)
@@ -388,6 +394,31 @@ export function installVSCodeIframeKeyboardBridge() {
         document.execCommand('redo');
       } catch {
         /* empty */
+      }
+      return;
+    } else if (isSelectAll(e)) {
+      // Keep select-all local to the iframe. Forwarding it makes the host
+      // webview select its own document: the selection highlight covers the
+      // whole sidebar, and since mouse clicks land inside the iframe the
+      // host document never receives a click to collapse the selection.
+      e.preventDefault();
+      e.stopPropagation();
+      const el = activeEditable();
+      if (el && (el as HTMLInputElement).selectionStart !== undefined) {
+        const input = el as HTMLInputElement | HTMLTextAreaElement;
+        input.setSelectionRange(0, input.value.length);
+      } else if (el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } else {
+        try {
+          document.execCommand('selectAll');
+        } catch {
+          /* empty */
+        }
       }
       return;
     } else if (isPaste(e)) {
