@@ -31,6 +31,7 @@ use crate::{DeploymentImpl, middleware};
 pub mod approvals;
 pub mod attachments;
 pub mod config;
+pub mod containers;
 pub mod events;
 pub mod execution_processes;
 pub mod filesystem;
@@ -59,6 +60,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(pipelines::router())
         .merge(recurrent::router())
         .merge(kanban::router(&deployment))
+        .merge(containers::router(&deployment))
         .merge(workspaces::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(tags::router(&deployment))
