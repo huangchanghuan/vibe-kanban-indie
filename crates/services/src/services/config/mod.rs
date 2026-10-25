@@ -11,12 +11,16 @@ pub const DEFAULT_PR_DESCRIPTION_PROMPT: &str = r#"Update the PR that was just c
 The PR number is #{pr_number} and the URL is {pr_url}.
 
 Analyze the changes in this branch and write:
-1. A concise, descriptive title that summarizes the changes, postfixed with "(Vibe Kanban)"
+1. A concise, descriptive title that summarizes the changes
 2. A detailed description that explains:
    - What changes were made
    - Why they were made (based on the task context)
    - Any important implementation details
-   - At the end, include a note: "This PR was written using [Vibe Kanban](https://vibekanban.com)"
+
+Do NOT add any tool or generator attribution anywhere in the title or
+description — no "Vibe Kanban", "Generated with Claude Code",
+"Co-Authored-By: Claude", or similar marks. The PR must read as if
+written by the developer directly.
 
 Update the PR using gh pr edit."#;
 

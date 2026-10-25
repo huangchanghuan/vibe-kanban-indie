@@ -5,7 +5,7 @@ pub mod slash_commands;
 pub mod types;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -1778,15 +1778,28 @@ impl ClaudeLogProcessor {
                     patches.push(patch);
                 }
 
+                // Do NOT remove the streaming state here: Claude ≥2.1.300 (and
+                // some proxy endpoints) emit MULTIPLE complete records per
+                // message id — one per content block ([thinking], then [text])
+                // — and can keep streaming deltas after the first record.
+                // Consuming the state on the first record orphaned those
+                // follow-ups, so a later record re-created its entry and the
+                // final message rendered twice. The state is retired by the
+                // message_stop event instead; every same-id record replaces
+                // the entries the stream already created.
                 let mut streaming_message_state = message
                     .id
                     .as_ref()
-                    .and_then(|id| self.streaming_messages.remove(id));
+                    .and_then(|id| self.streaming_messages.get_mut(id));
+
+                // Indexes already matched by earlier items of this record, so
+                // two same-kind items in one record don't claim the same entry.
+                let mut claimed = HashSet::new();
 
                 for (content_index, item) in message.content.items().enumerate() {
                     let entry_index = streaming_message_state
                         .as_mut()
-                        .and_then(|state| state.content_entry_index(content_index));
+                        .and_then(|state| state.entry_index_for_item(content_index, item, &mut claimed));
 
                     match item {
                         ClaudeContentItem::ToolUse { id, tool_data } => {
@@ -2557,6 +2570,53 @@ impl StreamingMessageState {
         self.contents
             .get(&content_index)
             .and_then(|s| s.entry_index)
+    }
+
+    /// Resolve the streaming entry index a complete assistant record item
+    /// should replace. Two record shapes exist:
+    ///
+    /// - full-message records (one record per assistant message): the
+    ///   record-local item index equals the message-level content index, so
+    ///   the direct hit wins when the kinds agree;
+    /// - per-block records (Claude ≥2.1.300 / some proxies emit one record
+    ///   per content block under the same message id): every item sits at
+    ///   record-local index 0, which would collide with the thinking block —
+    ///   fall back to matching by content kind instead.
+    ///
+    /// `claimed` holds indexes already matched by earlier items of the same
+    /// record so two same-kind items never share one entry.
+    fn entry_index_for_item(
+        &self,
+        content_index: usize,
+        item: &ClaudeContentItem,
+        claimed: &mut HashSet<usize>,
+    ) -> Option<usize> {
+        let wanted = match item {
+            ClaudeContentItem::Text { .. } => Some(StreamingContentKind::Text),
+            ClaudeContentItem::Thinking { .. } => Some(StreamingContentKind::Thinking),
+            _ => None,
+        };
+        if let Some(state) = self.contents.get(&content_index) {
+            let kind_ok = match wanted {
+                Some(w) => state.kind == w,
+                // Tool-use items own no text/thinking entry; the direct index
+                // is all they have (streaming never stores a state for them).
+                None => true,
+            };
+            if kind_ok && !claimed.contains(&content_index) {
+                claimed.insert(content_index);
+                return state.entry_index;
+            }
+        }
+        let wanted = wanted?;
+        self.contents
+            .iter()
+            .filter(|(i, s)| s.kind == wanted && !claimed.contains(i))
+            .min_by_key(|(i, _)| **i)
+            .and_then(|(i, s)| {
+                claimed.insert(*i);
+                s.entry_index
+            })
     }
 }
 
@@ -3604,6 +3664,67 @@ mod tests {
             NormalizedEntryType::AssistantMessage
         ));
         assert_eq!(entries[0].content, "Final result");
+    }
+
+    /// Regression (Claude ≥2.1.300 / proxy endpoints): stdout carries ONE
+    /// complete assistant record PER content block under the same message id
+    /// (record[thinking], then record[text]), interleaved with streaming
+    /// deltas. The state must survive between the records so the text record
+    /// replaces the streamed entry instead of adding a second copy — the
+    /// final rendered document must contain the text exactly once. Consuming
+    /// the state on the first record made the second record re-create the
+    /// text entry (the duplicated final message).
+    #[test]
+    fn per_block_assistant_records_render_text_once() {
+        use std::collections::BTreeMap;
+
+        let mut p = ClaudeLogProcessor::new();
+        let provider = EntryIndexProvider::test_new();
+        // Apply patches into the rendered document (index -> entry, last
+        // write wins) so replace-patches collapse instead of counting twice.
+        let mut document: BTreeMap<usize, NormalizedEntry> = BTreeMap::new();
+        let mut feed = |line: &str| {
+            let json: ClaudeJson = serde_json::from_str(line).unwrap();
+            let patches = p.normalize_entries(&json, "/repo", &provider);
+            for patch in patches {
+                if let Some((index, entry)) =
+                    crate::logs::utils::patch::extract_normalized_entry_from_patch(&patch)
+                {
+                    document.insert(index, entry);
+                }
+            }
+        };
+
+        feed(r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","role":"assistant","content":[]}}}"#);
+        feed(r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}"#);
+        feed(r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}}"#);
+        // Both blocks stream to completion BEFORE the records arrive.
+        feed(r#"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#);
+        feed(r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}"#);
+        feed(r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hello final"}}}"#);
+        // Then the two per-block records arrive back to back: thinking first,
+        // text second — this is the ordering that duplicated the text.
+        feed(r#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#);
+        feed(r#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello final"}]}}"#);
+        // Turn end: message_stop, then the result record carrying the same text.
+        feed(r#"{"type":"stream_event","event":{"type":"message_stop"}}"#);
+        feed(r#"{"type":"result","subtype":"success","is_error":false,"result":"hello final"}"#);
+
+        let texts: Vec<&NormalizedEntry> = document
+            .values()
+            .filter(|e| matches!(e.entry_type, NormalizedEntryType::AssistantMessage))
+            .collect();
+        assert_eq!(
+            texts.len(),
+            1,
+            "final text must render exactly once, got {texts:?}"
+        );
+        assert_eq!(texts[0].content, "hello final");
+        let thinkings = document
+            .values()
+            .filter(|e| matches!(e.entry_type, NormalizedEntryType::Thinking))
+            .count();
+        assert_eq!(thinkings, 1, "thinking must render exactly once");
     }
 
     #[test]
