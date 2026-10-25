@@ -1618,7 +1618,13 @@ impl ClaudeLogProcessor {
                         // We'll send system initialized message with first assistant message that has a model field.
                     }
                     Some("status") => {
-                        if let Some(status) = status {
+                        // Spinner-style status records (e.g. `status:
+                        // "requesting"` while an API call is in flight) are
+                        // pure UI state on structured stdout — skip them just
+                        // like the bare non-JSON spinner lines.
+                        if let Some(status) = status
+                            && !is_claude_bare_status_word(status)
+                        {
                             patches.push(add_system_message(status.clone(), entry_index_provider));
                         }
                     }
@@ -3415,6 +3421,33 @@ mod tests {
         assert!(
             patches_to_entries(&progress_patches).is_empty(),
             "tool_progress record should be skipped"
+        );
+
+        // Regression (Claude ≥2.1.300): the structured spinner record
+        // `{"type":"system","subtype":"status","status":"requesting"}` on the
+        // headless stdout is pure UI state — it must not render a system
+        // entry (the workspace "requesting" flood regression).
+        let requesting_line = r#"{"type":"system","subtype":"status","status":"requesting","session_id":"11111111-1111-1111-1111-111111111111","uuid":"a245cf9b-8a0f-4933-8edb-bbccdac0ff1a"}"#;
+        let requesting_json: ClaudeJson = serde_json::from_str(requesting_line).unwrap();
+        let mut p5 = ClaudeLogProcessor::new();
+        let requesting_patches =
+            p5.normalize_entries(&requesting_json, "/repo", &EntryIndexProvider::test_new());
+        assert!(
+            patches_to_entries(&requesting_patches).is_empty(),
+            "requesting status record should be skipped, got {:?}",
+            patches_to_entries(&requesting_patches)
+        );
+
+        // Non-spinner status values keep rendering.
+        let real_status_line = r#"{"type":"system","subtype":"status","status":"compacting","session_id":"11111111-1111-1111-1111-111111111111","uuid":"b245cf9b-8a0f-4933-8edb-bbccdac0ff1a"}"#;
+        let real_status_json: ClaudeJson = serde_json::from_str(real_status_line).unwrap();
+        let mut p6 = ClaudeLogProcessor::new();
+        let real_status_patches =
+            p6.normalize_entries(&real_status_json, "/repo", &EntryIndexProvider::test_new());
+        assert_eq!(
+            patches_to_entries(&real_status_patches).len(),
+            1,
+            "non-spinner status record should still render"
         );
 
         // Records with no dedicated parse branch are dropped silently too:
