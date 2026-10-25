@@ -1192,8 +1192,12 @@ impl ClaudeLogProcessor {
                             }
                         }
                         Err(_) => {
-                            // Handle non-JSON output as raw system message
-                            if !trimmed.is_empty() {
+                            // Handle non-JSON output as raw system message,
+                            // skipping bare status words (e.g. a lone
+                            // "requesting" spinner line) that carry no
+                            // content. Real error text still renders so a
+                            // crashing claude remains visible.
+                            if !trimmed.is_empty() && !is_claude_bare_status_word(trimmed) {
                                 let entry = NormalizedEntry {
                                     timestamp: None,
                                     entry_type: NormalizedEntryType::SystemMessage,
@@ -2307,29 +2311,25 @@ impl ClaudeLogProcessor {
                 }
             }
             ClaudeJson::Unknown { data } => {
-                // Interactive-mode transcripts (~/.claude/projects/.../<uuid>.jsonl)
-                // contain bookkeeping record types that never appear in the
-                // headless stream-json protocol. They carry no user-facing
-                // content, so skip them silently rather than rendering a noisy
-                // "Unrecognized JSON message" entry for each one.
-                if data
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(is_transcript_only_record_type)
-                {
-                    return patches;
-                }
-                let entry = NormalizedEntry {
-                    timestamp: None,
-                    entry_type: NormalizedEntryType::SystemMessage,
-                    content: format!(
-                        "Unrecognized JSON message: {}",
-                        serde_json::to_value(data).unwrap_or_default()
-                    ),
-                    metadata: None,
-                };
-                let idx = entry_index_provider.next();
-                patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                // Claude's output — both interactive-mode transcripts
+                // (~/.claude/projects/.../<uuid>.jsonl) and, since ≥2.1.300,
+                // the headless stream-json stdout — carries a long tail of
+                // bookkeeping/progress record types with no user-facing
+                // content: mode snapshots, request digests, cost totals,
+                // `tool_progress` streaming events, ... Every content-bearing
+                // family (assistant/user/system/tool_use/result/...) has its
+                // own parse branch, so anything landing here is noise. These
+                // records used to render as "Unrecognized JSON message"
+                // entries and flooded the workspace conversation; they are
+                // now dropped from the UI and logged at debug level for
+                // diagnostics instead.
+                let record_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("<none>");
+                tracing::debug!(
+                    known_bookkeeping = is_transcript_only_record_type(record_type),
+                    record_type,
+                    "dropping unrecognized claude record"
+                );
+                return patches;
             }
             ClaudeJson::ControlRequest { .. }
             | ClaudeJson::ControlResponse { .. }
@@ -2635,21 +2635,29 @@ impl StreamingContentState {
     }
 }
 
-/// Record `type` values that appear only in Claude's interactive-mode session
-/// transcript (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`) and not in the
-/// headless `--output-format=stream-json` protocol. These are session
-/// bookkeeping entries with no user-facing content, so the log normalizer skips
-/// them (otherwise they would each render as an "Unrecognized JSON message").
+/// Record `type` values that appear only in Claude's output bookkeeping and
+/// never carry user-facing content. Originally these were interactive-mode
+/// transcript (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`) record types;
+/// the headless `--output-format=stream-json` protocol grew its own noise
+/// families too. All content-bearing families have dedicated parse branches,
+/// so anything unrecognized is dropped from the UI regardless; this list
+/// classifies the known families in the debug log left for diagnostics.
 ///
 /// `queue-operation` records track queued-prompt bookkeeping (the user queuing
 /// or removing a queued prompt; observed `operation` values `enqueue` and
-/// `remove`) and carry no content worth rendering, so they are skipped too.
+/// `remove`).
 ///
 /// Claude ≥2.1 added more session-bookkeeping families observed in real
 /// transcripts: `agent-setting` / `atis-latch` (agent/ATIS session state),
 /// `api-request` / `api-request-shape` / `api-request-blob` (request digests
 /// and payload blobs — the blob merely re-embeds the outgoing user message),
 /// and `cost-state` (running cost totals). All content-free bookkeeping.
+///
+/// Claude ≥2.1.300 additionally streams `tool_progress` events on the
+/// headless stdout (fields observed: `session_id`, `uuid`,
+/// `parent_tool_use_id`, `tool_name`, `elapsed_time_seconds`) — per-tool
+/// progress ticks whose useful state (pending/running tool calls) is already
+/// rendered from the assistant content blocks.
 pub fn is_transcript_only_record_type(record_type: &str) -> bool {
     matches!(
         record_type,
@@ -2668,7 +2676,17 @@ pub fn is_transcript_only_record_type(record_type: &str) -> bool {
             | "api-request-shape"
             | "api-request-blob"
             | "cost-state"
+            | "tool_progress"
     )
+}
+
+/// Bare non-JSON status words that Claude ≥2.1.300 can emit on the headless
+/// stdout between stream-json records (observed: a lone `requesting` line
+/// while an API call is in flight). Pure UI state with no content — skipped
+/// instead of rendering a system entry. Extend this list as new spinner
+/// states leak onto stdout.
+fn is_claude_bare_status_word(line: &str) -> bool {
+    line.eq_ignore_ascii_case("requesting")
 }
 
 // Data structures for parsing Claude's JSON output format
@@ -3384,8 +3402,26 @@ mod tests {
             );
         }
 
-        // Regression: a genuinely unknown type still renders one "Unrecognized
-        // JSON message" entry.
+        // Regression (Claude ≥2.1.300): `tool_progress` streaming events on
+        // the headless stdout (per-tool ticks with tool_name /
+        // elapsed_time_seconds) are content-free bookkeeping — they must
+        // produce no rendered entry.
+        assert!(is_transcript_only_record_type("tool_progress"));
+        let progress_line = r#"{"type":"tool_progress","session_id":"11111111-1111-1111-1111-111111111111","uuid":"4087256b-a2cf-4033-9b05-48fe7f2fed04","parent_tool_use_id":null,"tool_name":"Bash","elapsed_time_seconds":1.2}"#;
+        let progress_json: ClaudeJson = serde_json::from_str(progress_line).unwrap();
+        let mut p4 = ClaudeLogProcessor::new();
+        let progress_patches =
+            p4.normalize_entries(&progress_json, "/repo", &EntryIndexProvider::test_new());
+        assert!(
+            patches_to_entries(&progress_patches).is_empty(),
+            "tool_progress record should be skipped"
+        );
+
+        // Records with no dedicated parse branch are dropped silently too:
+        // every content-bearing family has its own branch, so anything on the
+        // Unknown path is bookkeeping noise. Rendering it as an
+        // "Unrecognized JSON message" entry flooded the workspace
+        // conversation (the tool_progress flood regression).
         assert!(!is_transcript_only_record_type("totally-made-up"));
         let unknown_line =
             r#"{"type":"totally-made-up","sessionId":"11111111-1111-1111-1111-111111111111"}"#;
@@ -3393,18 +3429,22 @@ mod tests {
         let mut p3 = ClaudeLogProcessor::new();
         let unknown_patches =
             p3.normalize_entries(&unknown_json, "/repo", &EntryIndexProvider::test_new());
-        let unknown_entries = patches_to_entries(&unknown_patches);
-        assert_eq!(
-            unknown_entries.len(),
-            1,
-            "unknown type should render exactly one entry, got {unknown_entries:?}"
-        );
         assert!(
-            unknown_entries[0]
-                .content
-                .contains("Unrecognized JSON message"),
-            "unknown type should render an Unrecognized JSON message entry, got {unknown_entries:?}"
+            patches_to_entries(&unknown_patches).is_empty(),
+            "unrecognized record should be dropped silently, got {:?}",
+            patches_to_entries(&unknown_patches)
         );
+    }
+
+    /// Bare status words on stdout are filtered; anything else (real error
+    /// text) still renders.
+    #[test]
+    fn bare_status_words_are_filtered() {
+        assert!(is_claude_bare_status_word("requesting"));
+        assert!(is_claude_bare_status_word("Requesting"));
+        assert!(!is_claude_bare_status_word("requesting, retrying"));
+        assert!(!is_claude_bare_status_word("panic: something went wrong"));
+        assert!(!is_claude_bare_status_word(""));
     }
 
     fn patches_to_entries(patches: &[json_patch::Patch]) -> Vec<NormalizedEntry> {
