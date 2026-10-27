@@ -285,17 +285,29 @@ async fn send_input_process(
             "Input is too long (max {MAX_INPUT_LEN} characters)"
         )));
     }
-    // The UI is single-line; a newline would submit mid-message in the TUI, and
-    // other control chars could inject unintended keystrokes.
-    if text.chars().any(|c| c.is_control()) {
+    // Allow multi-line operator briefs: newlines and tabs are fine — multi-line
+    // text is delivered as one bracketed-paste block (send_interactive_message)
+    // so it never submits mid-message — but any other control char could still
+    // inject unintended keystrokes into the TUI.
+    if text
+        .chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
         return Err(ApiError::BadRequest(
-            "Input must be a single line without control characters".to_string(),
+            "Input must not contain control characters (newlines are allowed)".to_string(),
         ));
     }
-    deployment
-        .container()
-        .send_interactive_input(&execution_process, text)
-        .await?;
+    if text.contains('\n') {
+        deployment
+            .container()
+            .send_interactive_message(&execution_process, text)
+            .await?;
+    } else {
+        deployment
+            .container()
+            .send_interactive_input(&execution_process, text)
+            .await?;
+    }
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
